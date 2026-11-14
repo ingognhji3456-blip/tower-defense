@@ -327,7 +327,18 @@ class Game {
     this.gold -= cost;
     this.setLevel(t, t.level + 1);
     t.invested += cost;
-    this.emit('upgrade', { tower: t });
+    /* 영웅이 새 공격을 익혔으면 곧바로 한 번 써 보인다 */
+    const learn = t.def.learn ? t.def.learn[t.level] : null;
+    if (learn) {
+      if (t.def.mech === 'blade') {
+        if (t.level === 1) t.crossT = Math.min(t.crossT, 0.5);
+        else t.swordT = Math.min(t.swordT, 0.5);
+      } else if (t.def.mech === 'lord') {
+        if (t.level === 1) t.pillarT = Math.min(t.pillarT, 0.5);
+        else t.meteorT = Math.min(t.meteorT, 0.5);
+      }
+    }
+    this.emit('upgrade', { tower: t, learn });
     return true;
   }
 
@@ -1204,7 +1215,7 @@ class Game {
       const x = c.e.alive ? c.e.x : c.x;
       const y = c.e.alive ? c.e.y : c.y;
       this.blast(x, y, BLADE_CROSS_R, t, { dmg: lv.cross, dtype: 'magic', dot: lv.dot, dotT: BLADE_BURN });
-      this.emit('burst', { kind: 'cross', x, y, r: BLADE_CROSS_R });
+      this.emit('burst', { kind: 'cross', x, y, r: BLADE_CROSS_R, tower: t });
     }
     const target = this.pickTarget(t);
     const skill = (lv.cross && t.crossT <= 0) || (lv.swords && t.swordT <= 0);

@@ -16,7 +16,11 @@
      next    다음에 할 베기: 그 베기가 시작될 자리에 칼을 두고 기다린다
      gest    지금 하는 몸짓: 'cross'(십자 베기: 치켜들었다가 두 번 긋는다), 'swords'(화염검 낙하: 칼을 하늘로 든다)
      cast    그 몸짓이 남은 정도 (1 → 0)
-     charge  다음 화염검 낙하가 준비된 정도 (0 → 1): 등 뒤의 화염검이 다시 나타나 밝아진다 */
+     charge  다음 화염검 낙하가 준비된 정도 (0 → 1): 등 뒤의 화염검이 다시 나타나 밝아진다
+     chargeX 다음 십자 베기가 준비된 정도 (0 → 1): 머리 위의 십자 불꽃이 다시 맺혀 밝아진다
+
+   익힌 공격은 몸에 드러난다: 2단부터 머리 위에 십자 불꽃이 뜨고 발밑에 엇갈린 칼자국이 남으며,
+   3단에서는 등 뒤에 화염검 세 자루가 뜨고 발밑에 그 자리를 새긴 고리가 둘린다. */
 (function () {
   const BODY = ['#ffffff', '#f3ecdf', '#c9bfae']; /* 몸: 밝은 곳, 앞쪽 팔다리, 뒤쪽 팔다리 */
   const SCARF = ['#ff7a5c', '#d8382c', '#8a1c1c'];
@@ -371,6 +375,28 @@
     ctx.globalAlpha = 1;
   }
 
+  /* 머리 위에 떠 있는 십자 불꽃 (2단부터). 십자 베기가 준비되면 밝게 타오르고, 쓰는 순간 날아가 사라졌다가 다시 맺힌다 */
+  function sigil(ctx, p, charge) {
+    const using = p.gest === 'cross';
+    const show = using ? Math.max(0, 1 - p.ck * 3.2) : Math.min(1, charge * 1.6);
+    if (show <= 0.03) return;
+    const ready = charge >= 1;
+    const x = p.head[0] + 0.02;
+    const y = p.head[1] - 0.3 + Math.sin(p.t * 2.4) * 0.012;
+    const s = (0.09 + (ready ? 0.01 * Math.sin(p.t * 8) : 0)) * (0.6 + 0.4 * show);
+    ctx.globalAlpha = show * (ready ? 1 : 0.55);
+    artGlow(ctx, x, y, s * 2.8, GLOW, ready ? 0.7 : 0.35);
+    for (const sgn of [1, -1]) {
+      const ux = Math.cos(sgn * 0.82);
+      const uy = Math.sin(sgn * 0.82);
+      for (const [w, color, lw] of [[0.5, '#e8552a', ART.LW * 0.7], [0.3, '#ffb347', 0], [0.12, '#fff6cf', 0]]) {
+        artPoly(ctx, color, [x - ux * s * 1.5, y - uy * s * 1.5, x - uy * s * w, y + ux * s * w, x + ux * s * 1.5, y + uy * s * 1.5, x + uy * s * w, y - ux * s * w], lw);
+      }
+    }
+    if (ready) artSparkle(ctx, x, y, s * 0.9, '#ffffff', 0.7 + 0.3 * Math.sin(p.t * 10));
+    ctx.globalAlpha = 1;
+  }
+
   /* 발치에 이는 불길 (2단부터) */
   function fire(ctx, level, p) {
     const power = [0, 0.45, 0.8][level] + p.power * 0.3 + p.castK * 0.3;
@@ -421,8 +447,24 @@
       ctx.ellipse(0, 0.23, r, r * K, 0, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(44,30,24,.36)';
       ctx.fill();
-      /* 땅에 남은 칼자국: 2단은 한 줄, 3단은 엇갈린 두 줄에서 불빛이 샌다 */
-      const cuts = level === 2 ? [[-0.27, 0.17, 0.27, 0.29], [-0.25, 0.3, 0.26, 0.16]] : [[-0.26, 0.19, 0.27, 0.28]];
+      if (level === 2) {
+        /* 화염검 세 자루의 자리를 새긴 고리 */
+        ctx.beginPath();
+        ctx.ellipse(0, 0.23, r * 0.92, r * 0.92 * K, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(30,18,14,.75)';
+        ctx.lineWidth = 0.04;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,146,38,.9)';
+        ctx.lineWidth = 0.018;
+        ctx.stroke();
+        for (const a of [-2.5, -1.57, -0.64]) {
+          const x = Math.cos(a) * r * 0.92;
+          const y = 0.23 + Math.sin(a) * r * 0.92 * K;
+          artPoly(ctx, '#ffd45a', [x, y - 0.045, x + 0.022, y, x, y + 0.03, x - 0.022, y], ART.LW * 0.6);
+        }
+      }
+      /* 십자 베기를 익힌 자리: 엇갈린 칼자국에서 불빛이 샌다 (3단은 더 밝다) */
+      const cuts = [[-0.27, 0.17, 0.27, 0.29], [-0.25, 0.3, 0.26, 0.16]];
       for (const c of cuts) {
         const pts = [c[0], c[1], (c[0] + c[2]) / 2, (c[1] + c[3]) / 2 + 0.012, c[2], c[3]];
         artLine(ctx, 'rgba(30,18,14,.8)', pts, 0.034);
@@ -453,6 +495,7 @@
       ctx.translate(0, FEET);
       ctx.scale(p.dir * p.s, p.s);
       if (level === 2) wings(ctx, p, o.charge == null ? 1 : o.charge);
+      if (level >= 1) sigil(ctx, p, o.chargeX == null ? 1 : o.chargeX);
       fire(ctx, level, p);
       /* 머리띠 자락 두 가닥 */
       tail(ctx, level, p, p.head[0] - 0.1, p.head[1] - 0.01, 1.3, SCARF[1]);

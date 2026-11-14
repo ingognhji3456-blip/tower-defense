@@ -91,6 +91,7 @@ class Renderer {
     this.poses = new Map(); // 화염파의 몸짓을 프레임 사이에 부드럽게 잇기 위한 값
     this.columns = []; // 화염파의 불기둥
     this.cuts = []; // 홍련의 십자 베기 자국
+    this.scars = []; // 기술이 땅에 남긴 그을린 자국
   }
 
   setGame(game) {
@@ -490,15 +491,22 @@ class Renderer {
           this.spark(d.x, d.y, 8, { color: ['#ffffff', '#cba6ff', '#9cddf8'], speed: 2.6, life: 0.3, size: 0.05 });
         } else if (d.kind === 'cross') {
           /* 십자 베기: 엇갈린 두 줄의 불꽃 칼자국 */
-          this.cuts.push({ x: d.x, y: d.y, r: d.r, life: 0.5, max: 0.5, seed: Math.random() });
-          this.spark(d.x, d.y, 16, { color: ['#fff1a8', '#ffb347', '#e8552a', '#ffffff'], speed: 3.4, life: 0.4, size: 0.07, lift: -0.4 });
-          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.1);
+          const seed = Math.random();
+          const big = 1 + (d.tower ? d.tower.level - 1 : 0) * 0.3; /* 3단의 십자 베기는 더 크다 */
+          this.cuts.push({ x: d.x, y: d.y, r: d.r * big, life: 0.62, max: 0.62, seed, fx: d.tower ? d.tower.cx : d.x, fy: d.tower ? d.tower.cy : d.y });
+          this.scars.push({ kind: 'x', x: d.x, y: d.y, r: d.r * big, seed, life: 2.2, max: 2.2 });
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 2.2 * big, life: 0.45, max: 0.45, color: '255,150,40' });
+          this.spark(d.x, d.y, 26, { color: ['#fff1a8', '#ffb347', '#e8552a', '#ffffff'], speed: 4.2 * big, life: 0.5, size: 0.08, lift: -0.6 });
+          this.spark(d.x, d.y, 6, { color: ['#4a4658', '#6b6678'], speed: 0.8, life: 0.8, size: 0.14, lift: -0.5, soft: true });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.16);
         } else if (d.kind === 'sword') {
           /* 화염검이 땅에 꽂히며 불길이 솟는다 */
-          this.columns.push({ kind: 'sword', x: d.x, y: d.y, r: d.r, life: 0.55, max: 0.55 });
-          this.rings.push({ x: d.x, y: d.y, r: d.r * 1.3, life: 0.36, max: 0.36, color: '255,150,40' });
-          this.spark(d.x, d.y, 12, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 2.8, life: 0.45, size: 0.07, lift: -1.4, spread: d.r * 0.6 });
-          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.06);
+          this.columns.push({ kind: 'sword', x: d.x, y: d.y, r: d.r, life: 1.0, max: 1.0 });
+          this.scars.push({ kind: 'crack', x: d.x, y: d.y, r: d.r, seed: Math.random(), life: 2, max: 2 });
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 1.5, life: 0.4, max: 0.4, color: '255,150,40' });
+          this.spark(d.x, d.y, 18, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 3.2, life: 0.5, size: 0.075, lift: -1.6, spread: d.r * 0.6 });
+          this.spark(d.x, d.y, 5, { color: ['#4a4658', '#6b6678'], speed: 0.8, life: 0.8, size: 0.13, lift: -0.5, soft: true });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.1);
         } else if (d.kind === 'pillar') {
           this.columns.push({ x: d.x, y: d.y, r: d.r, life: 0.6, max: 0.6 });
           this.rings.push({ x: d.x, y: d.y, r: d.r * 1.25, life: 0.4, max: 0.4, color: '255,150,40' });
@@ -541,6 +549,16 @@ class Renderer {
         }
         this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 0.9, life: 0.45, max: 0.45, color: '255,226,126' });
         this.spark(d.tower.cx, d.tower.cy - 0.3, 14, { color: ['#ffe27e', '#ffffff'], speed: 1.3, life: 0.7, size: 0.05, lift: -1.4, spread: 0.5 });
+        if (d.learn) {
+          /* 새 공격을 익힌 순간: 빛기둥이 솟고, 무엇을 익혔는지 머리 위에 크게 뜬다 */
+          const tw = d.tower;
+          this.columns.push({ kind: 'rise', x: tw.cx, y: tw.cy + 0.2, r: 0.5, life: 1.1, max: 1.1 });
+          this.rings.push({ x: tw.cx, y: tw.cy + 0.2, r: 2.6, life: 0.9, max: 0.9, color: '255,226,126' });
+          this.rings.push({ x: tw.cx, y: tw.cy + 0.2, r: 1.5, life: 1.2, max: 1.2, color: '255,255,255' });
+          this.spark(tw.cx, tw.cy - 0.2, 34, { color: ['#ffe27e', '#ffffff', '#ffb347'], speed: 3, life: 1, size: 0.07, lift: -2.2, spread: 0.6 });
+          if (!this.clean) this.floaters.push({ x: tw.cx, y: tw.cy - 1.55, text: '새 공격 · ' + d.learn, color: '#ffe27e', life: 2.6, max: 2.6, big: true });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.22);
+        }
         break;
       case 'sell':
         this.spark(d.tower.cx, d.tower.cy, 8, { color: ['#ffe27e', '#f4b93a'], speed: 2, life: 0.6, size: 0.06, lift: -1.5, gravity: 6 });
@@ -569,6 +587,7 @@ class Renderer {
     if (!game || !this.w) return;
     const t = ui.time;
     const dt = ui.dt;
+    this.frameDt = dt;
     const camX = Math.round(this.cam.x * dpr) / dpr;
     const camY = Math.round(this.cam.y * dpr) / dpr;
 
@@ -845,6 +864,7 @@ class Renderer {
     o.gest = tw.gest;
     o.cast = tw.cast > 0 ? tw.cast / (tw.castDur || 1) : 0;
     o.charge = tw.lv.swords ? 1 - Math.max(0, Math.min(1, tw.swordT / BLADE_SWORD_EVERY)) : 0;
+    o.chargeX = tw.lv.cross ? 1 - Math.max(0, Math.min(1, tw.crossT / BLADE_CROSS_EVERY)) : 0;
     return have;
   }
 
@@ -968,6 +988,7 @@ class Renderer {
   /* 화염파의 불기둥·유성이 터질 자리를 땅에 미리 비춘다 */
   drawStrikeMarks(ctx, t) {
     const { ts, game } = this;
+    this.drawScars(ctx);
     if (!game.strikes || !game.strikes.length) return;
     for (const s of game.strikes) {
       const k = Math.max(0, Math.min(1, s.t / s.delay));
@@ -987,6 +1008,18 @@ class Renderer {
       ctx.beginPath();
       ctx.arc(x, y, r * (1 - k * 0.85), 0, Math.PI * 2);
       ctx.stroke();
+      if (s.kind === 'sword') {
+        /* 화염검이 꽂힐 자리: 칼 모양 표시 */
+        ctx.strokeStyle = `rgba(255,246,207,${0.5 + 0.5 * k})`;
+        ctx.lineWidth = Math.max(1.5, ts * 0.055);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x, y - r * 0.62);
+        ctx.lineTo(x, y + r * 0.55);
+        ctx.moveTo(x - r * 0.3, y - r * 0.22);
+        ctx.lineTo(x + r * 0.3, y - r * 0.22);
+        ctx.stroke();
+      }
       if (s.kind === 'pillar') {
         /* 갈라진 틈으로 새는 불빛 */
         ctx.strokeStyle = `rgba(255,170,60,${k})`;
@@ -1000,6 +1033,48 @@ class Renderer {
         ctx.stroke();
       }
     }
+  }
+
+  /* 기술이 땅에 남긴 자국: 십자 베기의 엇갈린 칼자국, 화염검이 꽂혔던 자리의 금. 불빛이 식으며 사라진다 */
+  drawScars(ctx) {
+    const ts = this.ts;
+    const dt = this.frameDt || 0;
+    let n = 0;
+    ctx.lineCap = 'round';
+    for (const c of this.scars) {
+      c.life -= dt;
+      if (c.life <= 0) continue;
+      this.scars[n++] = c;
+      const k = c.life / c.max; /* 1 → 0 */
+      const x = this.px(c.x, c.y);
+      const y = this.py(c.x, c.y);
+      const lines = [];
+      if (c.kind === 'x') {
+        const L = c.r * ts * 1.25;
+        for (const sgn of [1, -1]) {
+          const a = sgn * 0.82 + (c.seed - 0.5) * 0.3;
+          lines.push([x - Math.cos(a) * L, y - Math.sin(a) * L, x + Math.cos(a) * L, y + Math.sin(a) * L]);
+        }
+      } else {
+        for (let i = 0; i < 5; i++) {
+          const a = c.seed * 6.28 + i * 1.257;
+          const L = c.r * ts * (0.55 + (i % 2) * 0.3);
+          lines.push([x, y, x + Math.cos(a) * L, y + Math.sin(a) * L]);
+        }
+      }
+      const thin = c.kind === 'x' ? 1 : 0.55; /* 금은 칼자국보다 가늘다 */
+      for (const [w, color] of [[0.13, `rgba(40,24,18,${0.5 * Math.min(1, k * 2)})`], [0.07, `rgba(255,122,26,${0.9 * k * k})`], [0.028, `rgba(255,241,168,${k * k * k})`]]) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, ts * w * thin);
+        ctx.beginPath();
+        for (const l of lines) {
+          ctx.moveTo(l[0], l[1]);
+          ctx.lineTo(l[2], l[3]);
+        }
+        ctx.stroke();
+      }
+    }
+    this.scars.length = n;
   }
 
   /* 떨어지는 유성과 솟구친 불기둥 */
@@ -1053,6 +1128,26 @@ class Renderer {
       if (c.life <= 0) continue;
       this.columns[n++] = c;
       const k = c.life / c.max; /* 1 → 0 */
+      if (c.kind === 'rise') {
+        /* 새 공격을 익힌 순간 솟는 빛기둥 */
+        const x = this.px(c.x, c.y);
+        const y = this.py(c.x, c.y);
+        const h = ts * 5.5;
+        for (const [w, rgb, a] of [[0.62, '255,200,90', 0.5], [0.36, '255,236,160', 0.75], [0.14, '255,255,255', 0.95]]) {
+          const half = ts * w * (0.55 + 0.45 * k);
+          const g = ctx.createLinearGradient(0, y - h, 0, y);
+          g.addColorStop(0, `rgba(${rgb},0)`);
+          g.addColorStop(0.55, `rgba(${rgb},${a * k * 0.7})`);
+          g.addColorStop(1, `rgba(${rgb},${a * k})`);
+          ctx.fillStyle = g;
+          ctx.fillRect(x - half, y - h, half * 2, h);
+        }
+        ctx.fillStyle = `rgba(255,236,160,${0.7 * k})`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, ts * 0.7, ts * 0.26, 0, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
       if (c.kind === 'thunder') {
         /* 하늘에서 내리꽂히는 벼락 */
         const x0 = this.px(c.x, c.y);
@@ -1080,7 +1175,7 @@ class Renderer {
       const y = this.py(c.x, c.y);
       const sword = c.kind === 'sword';
       const w = c.r * ts * (sword ? 0.5 : 0.62 + 0.2 * (1 - k));
-      const h = ts * (sword ? 1.5 : 3.1) * up;
+      const h = ts * (sword ? 2.1 : 3.1) * up;
       const wob = Math.sin(t * 40 + c.x * 7) * w * 0.08;
       for (const [f, color] of [[1, `rgba(255,104,24,${0.55 * k})`], [0.66, `rgba(255,170,60,${0.85 * k})`], [0.34, `rgba(255,246,207,${0.95 * k})`]]) {
         ctx.fillStyle = color;
@@ -1096,7 +1191,7 @@ class Renderer {
       ctx.beginPath();
       ctx.ellipse(x, y, w * 1.25, w * 0.5, 0, 0, Math.PI * 2);
       ctx.fill();
-      if (sword) this.flameSword(ctx, x, y, Math.min(1, k * 2.2), t); /* 땅에 꽂힌 검이 불길 속에서 사라진다 */
+      if (sword) this.flameSword(ctx, x, y, Math.min(1, k * 1.8), t); /* 땅에 꽂힌 검이 불길 속에서 사라진다 */
     }
     this.columns.length = n;
   }
@@ -1209,6 +1304,30 @@ class Renderer {
       if (spin) this.crescent(ctx, tw.cx, tw.cy, sp.tail + 0.3, sp.head - 0.5, tw.range * 0.55, 0.26 * grow, fade * 0.85, tw.id + 1.7);
     }
 
+    /* 십자 베기로 가를 적 위에 조여드는 겨눔 표시 */
+    for (const tw of game.towers) {
+      const c = tw.crossAim;
+      if (!c || !c.e.alive) continue;
+      const q = Math.max(0, Math.min(1, 1 - (tw.cast / tw.castDur - BLADE_CROSS_AT) / (1 - BLADE_CROSS_AT)));
+      const x = this.px(c.e.x, c.e.y);
+      const y = this.py(c.e.x, c.e.y) - ts * 0.15;
+      const R = ts * (1.25 - 0.6 * q);
+      ctx.strokeStyle = `rgba(255,214,110,${0.35 + 0.65 * q})`;
+      ctx.lineWidth = Math.max(1.5, ts * 0.06);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = Math.PI / 4 + (i * Math.PI) / 2 + q * 1.2;
+        ctx.moveTo(x + Math.cos(a) * R, y + Math.sin(a) * R);
+        ctx.lineTo(x + Math.cos(a) * R * 0.55, y + Math.sin(a) * R * 0.55);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, R, 0, Math.PI * 2);
+      ctx.lineWidth = Math.max(1, ts * 0.03);
+      ctx.stroke();
+    }
+
     let n = 0;
     for (const c of this.cuts) {
       c.life -= dt;
@@ -1219,6 +1338,31 @@ class Renderer {
       const y = this.py(c.x, c.y) - ts * 0.15;
       const fade = Math.min(1, (1 - k) * 2.6);
       const L = c.r * ts * 2.5;
+      if (k < 0.3) {
+        /* 영웅에게서 적에게로 날아간 검기의 빛줄기 */
+        const f = 1 - k / 0.3;
+        const hx = this.px(c.fx, c.fy);
+        const hy = this.py(c.fx, c.fy) - ts * 0.45;
+        const dx = x - hx;
+        const dy = y - hy;
+        const d = Math.hypot(dx, dy) || 1;
+        for (const [w, color] of [[0.3, `rgba(232,85,42,${0.55 * f})`], [0.16, `rgba(255,190,90,${0.9 * f})`], [0.06, `rgba(255,255,255,${f})`]]) {
+          const hw = ts * w * 0.5;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(hx, hy);
+          ctx.lineTo(hx + dx * 0.7 - (dy / d) * hw, hy + dy * 0.7 + (dx / d) * hw);
+          ctx.lineTo(x, y);
+          ctx.lineTo(hx + dx * 0.7 + (dy / d) * hw, hy + dy * 0.7 - (dx / d) * hw);
+          ctx.closePath();
+          ctx.fill();
+        }
+        /* 맞는 순간의 섬광 */
+        ctx.fillStyle = `rgba(255,246,207,${0.85 * f})`;
+        ctx.beginPath();
+        ctx.arc(x, y, c.r * ts * (0.5 + k * 3), 0, Math.PI * 2);
+        ctx.fill();
+      }
       /* 자국을 두른 고리 */
       ctx.strokeStyle = `rgba(255,170,60,${0.8 * fade})`;
       ctx.lineWidth = Math.max(1, ts * 0.06);
@@ -1245,6 +1389,24 @@ class Renderer {
           ctx.lineTo((x0 + x1) / 2 + uy * hw, (y0 + y1) / 2 - ux * hw);
           ctx.closePath();
           ctx.fill();
+        }
+        /* 칼자국을 따라 솟는 불길 */
+        for (let i = 0; i < 4; i++) {
+          const f = (i + 0.5) / 4;
+          if (f > g) break;
+          const bx = x0 + ux * L * f;
+          const by = y0 + uy * L * f;
+          const hgt = ts * (0.42 + 0.14 * Math.sin(t * 22 + i * 2 + j)) * fade * Math.sin(f * Math.PI);
+          const w = ts * 0.1;
+          for (const [q, color] of [[1, `rgba(255,104,24,${0.8 * fade})`], [0.55, `rgba(255,214,110,${0.9 * fade})`]]) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(bx - w * q, by);
+            ctx.quadraticCurveTo(bx - w * q * 1.2, by - hgt * q * 0.5, bx, by - hgt * q);
+            ctx.quadraticCurveTo(bx + w * q * 1.2, by - hgt * q * 0.45, bx + w * q, by);
+            ctx.closePath();
+            ctx.fill();
+          }
         }
         if (g >= 1) {
           /* 칼자국 끝에서 반짝이는 빛 */
@@ -1706,7 +1868,8 @@ class Renderer {
     n = 0;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `700 ${Math.max(11, ts * 0.36)}px ${FONT_UI}`;
+    const small = `700 ${Math.max(11, ts * 0.36)}px ${FONT_UI}`;
+    const large = `800 ${Math.max(15, ts * 0.52)}px ${FONT_UI}`;
     ctx.lineJoin = 'round';
     for (const f of this.floaters) {
       f.life -= dt;
@@ -1714,9 +1877,10 @@ class Renderer {
       this.floaters[n++] = f;
       const k = f.life / f.max;
       const px = this.px(f.x, f.y);
-      const py = this.py(f.x, f.y) - (1 - k) * ts * 0.7;
-      ctx.globalAlpha = Math.min(1, k * 2);
-      ctx.lineWidth = Math.max(3, ts * 0.09);
+      const py = this.py(f.x, f.y) - (1 - k) * ts * (f.big ? 0.45 : 0.7);
+      ctx.font = f.big ? large : small;
+      ctx.globalAlpha = Math.min(1, k * (f.big ? 4 : 2));
+      ctx.lineWidth = Math.max(3, ts * (f.big ? 0.13 : 0.09));
       ctx.strokeStyle = ART.OUT;
       ctx.strokeText(f.text, px, py);
       ctx.fillStyle = f.color;

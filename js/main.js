@@ -1304,6 +1304,7 @@
     const cost = app.game.upgradeCost(t);
     if (cost == null) return;
     if (!app.game.upgrade(t)) deny('골드가 ' + (cost - app.game.gold) + ' 모자랍니다.');
+    else if (t.def.learn && t.def.learn[t.level]) toast(t.def.name + ' — 새 공격 「' + t.def.learn[t.level] + '」 습득!', 3200);
     refreshPanels();
   }
 
@@ -1354,9 +1355,12 @@
       const next = t.def.levels[t.level + 1] ? g.lvOf(t.type, t.level + 1) : null;
       el.selName.textContent = t.def.name;
       el.selLevel.textContent = t.level + 1 + '단';
-      fillStats(el.selStats, statList(t.type, t.lv, next));
+      const stats = statList(t.type, t.lv, next);
+      const learn = next && t.def.learn ? t.def.learn[t.level + 1] : null;
+      if (learn) stats.unshift({ label: '새 공격', value: '', next: learn });
+      fillStats(el.selStats, stats);
       if (next) {
-        el.upgrade.textContent = '강화 ' + next.cost + 'G';
+        el.upgrade.textContent = (learn ? '강화 · ' + learn + ' ' : '강화 ') + next.cost + 'G';
         el.upgrade.disabled = g.gold < next.cost;
       } else {
         el.upgrade.textContent = '최고 단계';

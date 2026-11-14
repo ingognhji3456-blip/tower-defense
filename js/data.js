@@ -419,6 +419,7 @@ const TOWERS = {
      pillar(·pillars) 는 2단부터 쓰는 불기둥의 피해(와 개수), meteor·meteors 는 3단의 유성 하나의 피해와 개수. */
   lord: {
     name: '화염파', rarity: 'mythic', unique: true, mech: 'lord', dtype: 'magic',
+    learn: [null, '불기둥', '유성우'], /* 그 단계에 올라서며 익히는 공격 */
     blurb: '굵은 불꽃 광선을 부채꼴로 휘둘러 범위 안의 적을 한꺼번에 태우고, 적이 다가오면 충격파로 태우며 밀어냅니다. 2단에서 불기둥, 3단에서 유성우를 익힙니다. 한 판에 하나만 세울 수 있습니다.',
     levels: [
       { cost: 520, dmg: 50, cd: 2.2, range: 3.4, arc: 1.3, shock: 30, shockR: 1.9, push: 0.9, h: 0.42 },
@@ -432,11 +433,12 @@ const TOWERS = {
      cross 는 2단부터 쓰는 십자 베기의 피해, sword·swords 는 3단의 화염검 하나의 피해와 개수, h 는 가슴 높이. */
   blade: {
     name: '홍련', rarity: 'mythic', unique: true, mech: 'blade', dtype: 'magic', dotKind: 'burn',
+    learn: [null, '십자 베기', '화염검 낙하'], /* 그 단계에 올라서며 익히는 공격 */
     blurb: '불꽃 검으로 다가온 적을 연달아 벱니다. 두 번 가로로 베고, 세 번째는 한 바퀴 돌며 둘레의 적을 모두 베어 불태웁니다. 2단에서 가장 센 적을 가르는 십자 베기, 3단에서 화염검 낙하를 익힙니다. 껍질을 무시합니다. 한 판에 하나만 세울 수 있습니다.',
     levels: [
-      { cost: 500, dmg: 16, cd: 0.62, range: 2.0, arc: 2.2, finish: 1.8, dot: 4, h: 0.42 },
-      { cost: 450, dmg: 25, cd: 0.56, range: 2.2, arc: 2.4, finish: 1.9, dot: 8, cross: 140, h: 0.48 },
-      { cost: 800, dmg: 42, cd: 0.5, range: 2.4, arc: 2.6, finish: 2.0, dot: 13, cross: 230, sword: 110, swords: 3, h: 0.56 },
+      { cost: 500, dmg: 22, cd: 0.62, range: 2.0, arc: 2.2, finish: 1.8, dot: 6, h: 0.42 },
+      { cost: 450, dmg: 34, cd: 0.56, range: 2.2, arc: 2.4, finish: 1.9, dot: 11, cross: 210, h: 0.48 },
+      { cost: 800, dmg: 60, cd: 0.5, range: 2.4, arc: 2.6, finish: 2.0, dot: 18, cross: 380, sword: 190, swords: 3, h: 0.56 },
     ],
   },
 };
