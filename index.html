@@ -23,14 +23,14 @@
       <b id="hud-gold">220</b>
     </div>
     <div class="stat">
-      <span class="sub">웨이브</span><b id="hud-wave">0</b><span class="sub" id="hud-of">/30</span>
+      <span class="sub stage-tag" id="hud-stage"></span><span class="sub">웨이브</span><b id="hud-wave">0</b><span class="sub" id="hud-of">/30</span>
     </div>
     <div class="hud-btns">
       <button class="icon-btn" id="btn-speed" type="button" aria-label="게임 속도" title="게임 속도">1×</button>
       <button class="icon-btn" id="btn-pause" type="button" aria-label="일시정지" aria-pressed="false" title="일시정지 (P)">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M5 3.5h3.5v13H5zM11.5 3.5H15v13h-3.5z"/></svg>
       </button>
-      <button class="icon-btn" id="btn-sound" type="button" aria-label="소리" aria-pressed="true" title="소리">
+      <button class="icon-btn sound-toggle" id="btn-sound" type="button" aria-label="소리" aria-pressed="true" title="소리">
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <path fill="currentColor" d="M3 7.5h3L10.5 4v12L6 12.5H3z"/>
           <path class="on-mark" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M13 7.2a4 4 0 0 1 0 5.6M15.2 5a7 7 0 0 1 0 10"/>
@@ -83,13 +83,64 @@
   </aside>
 </div>
 
-<div class="overlay" id="menu">
-  <div class="sheet">
-    <p class="eyebrow">타워 디펜스</p>
-    <h1>철벽 요새</h1>
-    <p class="lede">괴수 떼가 굴에서 쏟아져 나와 성문으로 몰려옵니다. 길가에 탑을 세우고 강화해 서른 번의 습격을 막아내세요.</p>
+<!-- 로비 -->
+<div class="screen" id="lobby">
+  <div class="lobby">
+    <canvas class="hero" id="hero" aria-hidden="true"></canvas>
+    <div class="lobby-body">
+      <p class="eyebrow">타워 디펜스</p>
+      <h1>철벽 요새</h1>
+      <p class="lede">괴수 떼가 굴에서 쏟아져 나와 성문으로 몰려옵니다. 탑을 세우고 강화해 열두 전장을 차례로 지켜내세요.</p>
+      <div class="progress" id="lobby-progress"></div>
+      <div class="lobby-actions">
+        <button class="btn primary big" id="btn-play" type="button">스테이지 선택</button>
+        <button class="btn big" id="btn-continue" type="button" hidden></button>
+        <div class="lobby-row">
+          <button class="btn" id="btn-challenge" type="button">도전 모드</button>
+          <button class="btn" id="btn-codex" type="button">도감</button>
+          <button class="btn ghost sound-toggle" id="btn-sound2" type="button" aria-pressed="true">소리 켜짐</button>
+        </div>
+        <p class="lobby-hint" id="lobby-hint"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 스테이지 선택 -->
+<div class="screen" id="stages" hidden>
+  <div class="board-screen">
+    <header class="screen-head">
+      <button class="btn ghost" id="btn-stages-back" type="button">← 로비</button>
+      <h2>스테이지 선택</h2>
+      <span class="stars-total" id="stages-total"></span>
+    </header>
+    <div class="stage-layout">
+      <div class="stage-grid" id="stage-grid" role="radiogroup" aria-label="스테이지"></div>
+      <section class="stage-detail" aria-live="polite">
+        <canvas id="stage-thumb" width="480" height="300" aria-hidden="true"></canvas>
+        <div class="stage-info">
+          <p class="eyebrow" id="stage-no"></p>
+          <h3 id="stage-name"></h3>
+          <p class="stage-meta" id="stage-meta"></p>
+          <div class="chips wrap" id="stage-enemies"></div>
+          <p class="stage-note" id="stage-note"></p>
+          <button class="btn primary big" id="btn-stage-start" type="button">시작</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- 도전 모드 -->
+<div class="screen" id="challenge" hidden>
+  <div class="board-screen narrow">
+    <header class="screen-head">
+      <button class="btn ghost" id="btn-challenge-back" type="button">← 로비</button>
+      <h2>도전 모드</h2>
+    </header>
+    <p class="lede">전장과 난이도를 골라 서른 웨이브를 버팁니다. 다 막아내면 무한 모드로 이어 갈 수 있습니다.</p>
     <div class="field">
-      <span class="label" id="lbl-map">전장 고르기</span>
+      <span class="label" id="lbl-map">전장</span>
       <div class="maps" id="maps" role="radiogroup" aria-labelledby="lbl-map"></div>
       <p class="map-note" id="map-note"></p>
     </div>
@@ -97,21 +148,44 @@
       <span class="label" id="lbl-diff">난이도</span>
       <div class="seg" id="diffs" role="radiogroup" aria-labelledby="lbl-diff"></div>
     </div>
-    <div class="menu-foot">
-      <button class="btn ghost" id="btn-sound2" type="button" aria-pressed="true">소리 켜짐</button>
-      <div class="actions">
-        <button class="btn" id="btn-resume" type="button" hidden>돌아가기</button>
-        <button class="btn" id="btn-continue" type="button" hidden>이어하기</button>
-        <button class="btn primary" id="btn-new" type="button">새 게임</button>
-      </div>
+    <button class="btn primary big wide" id="btn-challenge-start" type="button">시작</button>
+  </div>
+</div>
+
+<!-- 도감 -->
+<div class="screen" id="codex" hidden>
+  <div class="board-screen">
+    <header class="screen-head">
+      <button class="btn ghost" id="btn-codex-back" type="button">← 로비</button>
+      <h2>도감</h2>
+    </header>
+    <h3 class="codex-title">탑</h3>
+    <div class="codex-list" id="codex-towers"></div>
+    <h3 class="codex-title">괴수</h3>
+    <div class="codex-list" id="codex-enemies"></div>
+  </div>
+</div>
+
+<!-- 일시정지 메뉴 -->
+<div class="overlay" id="pause" hidden>
+  <div class="sheet small">
+    <p class="eyebrow" id="pause-eyebrow"></p>
+    <h2 id="pause-title">잠시 멈춤</h2>
+    <div class="stack">
+      <button class="btn primary big" id="btn-resume" type="button">계속하기</button>
+      <button class="btn big" id="btn-restart" type="button">처음부터 다시</button>
+      <button class="btn big" id="btn-quit" type="button">나가기</button>
+      <button class="btn ghost sound-toggle" id="btn-sound3" type="button" aria-pressed="true">소리 켜짐</button>
     </div>
   </div>
 </div>
 
+<!-- 결과 -->
 <div class="overlay" id="result" hidden>
   <div class="sheet">
     <p class="eyebrow" id="result-eyebrow"></p>
     <h2 id="result-title"></h2>
+    <div class="stars" id="result-stars" hidden><span>★</span><span>★</span><span>★</span></div>
     <p class="lede" id="result-text"></p>
     <dl class="tally">
       <div><dt>막아낸 웨이브</dt><dd id="tally-wave">0</dd></div>
@@ -120,9 +194,10 @@
     </dl>
     <div class="menu-foot">
       <div class="actions">
-        <button class="btn" id="btn-home" type="button">처음으로</button>
+        <button class="btn" id="btn-home" type="button">스테이지 선택</button>
         <button class="btn" id="btn-endless" type="button" hidden>무한 모드로 계속</button>
-        <button class="btn primary" id="btn-retry" type="button">다시 하기</button>
+        <button class="btn" id="btn-retry" type="button">다시 하기</button>
+        <button class="btn primary" id="btn-next" type="button" hidden>다음 스테이지</button>
       </div>
     </div>
   </div>

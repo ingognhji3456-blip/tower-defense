@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 /* 밸런스 점검용 봇. 화면 없이 게임을 끝까지 돌려 본다.
-   사용법: node tools/balance.js [--verbose] */
+
+   node tools/balance.js              스테이지마다 봇 셋의 결과
+   node tools/balance.js --verbose    놓친 적과 지은 탑도 함께
+   node tools/balance.js --challenge  도전 모드(지도 × 난이도, 30 웨이브)
+   node tools/balance.js --tune       스테이지마다 봇이 별 셋을 따는 한계 체력 배율을 찾아 준다 */
 
 const fs = require('fs');
 const path = require('path');
@@ -19,14 +23,14 @@ function upcoming(game) {
   const mix = [];
   let total = 0;
   for (let w = game.wave + 1; w <= game.wave + 3; w++) {
-    for (const [type, n] of waveGroups(w)) {
+    for (const [type, n] of game.groups(w)) {
       const def = ENEMIES[type];
-      const weight = n * def.hp * hpScale(w);
-      mix.push({ weight, armor: def.armor * (1 + 0.05 * (w - 1)), phys: def.phys });
+      const weight = n * def.hp * game.hpAt(w);
+      mix.push({ weight, armor: def.armor * game.armorAt(w), phys: def.phys });
       total += weight;
     }
   }
-  for (const m of mix) m.weight /= total;
+  for (const m of mix) m.weight /= total || 1;
   return mix;
 }
 
@@ -52,9 +56,10 @@ function power(type, level, mix) {
 }
 
 const STRATEGIES = {
-  /* 여러 타워를 섞고 서리탑을 곁들이는 무난한 운영 */
+  /* 다가올 적을 보고 값어치가 큰 것부터 사는 운영 */
   mixed(game) {
     const mix = upcoming(game);
+    const can = (t) => game.allowed.includes(t);
     for (let guard = 0; guard < 40; guard++) {
       if (game.towers.length < 4 && game.wave < 3) {
         const spot = bestSpot(game, 2.6);
@@ -65,12 +70,12 @@ const STRATEGIES = {
       const options = [];
       const attackers = game.towers.filter((t) => t.def.kind !== 'aura');
       const auras = game.towers.filter((t) => t.def.kind === 'aura');
-      if (attackers.length >= 3 * (auras.length + 1) && auras.length < 5) {
+      if (can('frost') && attackers.length >= 3 * (auras.length + 1) && auras.length < 5) {
         const anchor = attackers[auras.length * 3] || attackers[0];
         const spot = bestSpot(game, TOWERS.frost.levels[0].range, anchor);
         if (spot) options.push({ value: 99, cost: 80, run: () => game.build('frost', spot.x, spot.y) });
       }
-      for (const type of ['crossbow', 'cannon', 'rocket', 'tesla']) {
+      for (const type of ['crossbow', 'cannon', 'rocket', 'tesla'].filter(can)) {
         const lv = TOWERS[type].levels[0];
         const spot = bestSpot(game, lv.range);
         if (!spot) continue;
@@ -85,7 +90,7 @@ const STRATEGIES = {
         const cost = game.upgradeCost(t);
         if (cost == null) continue;
         if (t.def.kind === 'aura') {
-          if (game.wave >= 8) options.push({ value: 0.16, cost, run: () => game.upgrade(t) });
+          if (game.wave >= Math.min(8, game.finalWave / 2)) options.push({ value: 0.16, cost, run: () => game.upgrade(t) });
           continue;
         }
         const cover = Math.min(1, game.coverage(t.cx, t.cy, t.lv.range) / 60);
@@ -103,9 +108,10 @@ const STRATEGIES = {
 
   /* 정해진 순서로 골고루 짓고, 틈틈이 강화하는 평범한 사람의 운영 */
   casual(game) {
-    const ORDER = ['crossbow', 'crossbow', 'cannon', 'crossbow', 'frost', 'tesla', 'crossbow', 'cannon', 'rocket', 'tesla', 'frost'];
+    const ORDER = ['crossbow', 'crossbow', 'cannon', 'crossbow', 'frost', 'tesla', 'crossbow', 'cannon', 'rocket', 'tesla', 'frost']
+      .filter((t) => game.allowed.includes(t));
     for (let guard = 0; guard < 40; guard++) {
-      const want = Math.min(24, Math.floor(4 + game.wave * 0.7));
+      const want = Math.min(24, Math.floor(4 + game.wave * 0.7 + (game.stage ? game.stage.gold / 160 : 0)));
       if (game.towers.length < want) {
         let type = ORDER[game.stats.built % ORDER.length];
         if (game.gold < TOWERS[type].levels[0].cost && game.wave < 6) type = 'crossbow';
@@ -137,24 +143,20 @@ const STRATEGIES = {
   },
 };
 
-function play(mapId, diff, strategy, maxWave = FINAL_WAVE) {
-  const game = new Game({ map: mapId, diff });
-  const log = [];
+function play(opts, strategy) {
+  const game = new Game(opts);
   const leaks = [];
   game.listener = (type, d) => {
     if (type === 'leak') leaks.push(`w${game.wave} ${d.enemy.def.name} ${Math.round((d.enemy.hp / d.enemy.maxHp) * 100)}%`);
   };
   const DT = 1 / 60;
-  while (game.phase !== 'lost' && game.phase !== 'won' && game.wave < maxWave) {
+  while (game.phase !== 'lost' && game.phase !== 'won') {
     STRATEGIES[strategy](game);
-    const before = game.lives;
     game.startWave();
     let ticks = 0;
     while (game.phase === 'wave' && ticks++ < 60 * 600) game.update(DT);
-    log.push({ wave: game.wave, lost: before - game.lives, gold: game.gold, sec: Math.round(ticks / 60) });
-    if (game.phase === 'won' && maxWave > FINAL_WAVE) game.continueEndless();
   }
-  return { game, log, leaks };
+  return { game, leaks };
 }
 
 function describe(game) {
@@ -166,29 +168,61 @@ function describe(game) {
   return Object.entries(count).map(([k, n]) => `${k}×${n}`).join(' ');
 }
 
-console.log('지도         난이도   운영      결과     웨이브  남은목숨  처치   번 돈');
-for (const map of MAPS) {
-  for (const diff of Object.keys(DIFFICULTY)) {
-    for (const strategy of Object.keys(STRATEGIES)) {
-      const { game, log, leaks } = play(map.id, diff, strategy);
-      const result = game.phase === 'won' ? '승리' : game.phase === 'lost' ? '패배' : game.phase;
-      console.log(
-        [
-          map.name.padEnd(8, '　'),
-          DIFFICULTY[diff].name.padEnd(4, '　'),
-          strategy.padEnd(8),
-          result,
-          String(game.wave).padStart(6),
-          String(game.lives).padStart(8),
-          String(game.stats.kills).padStart(6),
-          String(game.stats.earned).padStart(7),
-        ].join('  '),
-      );
-      if (VERBOSE) {
-        console.log('   ' + describe(game));
-        console.log('   ' + log.filter((l) => l.lost).map((l) => `w${l.wave}:-${l.lost}`).join(' '));
-        if (leaks.length) console.log('   놓친 적: ' + leaks.slice(-6).join(', '));
+const pad = (s, n) => String(s).padEnd(n, '　');
+
+function report(label, strategy, game, leaks) {
+  const won = game.phase === 'won';
+  const stars = won && game.stage ? '★'.repeat(game.stars()) + '☆'.repeat(3 - game.stars()) : '   ';
+  console.log([
+    label, strategy.padEnd(9), won ? '승리' : '패배', stars,
+    String(game.wave).padStart(3) + '/' + String(game.finalWave).padEnd(2),
+    '목숨 ' + String(game.lives).padStart(2), '처치 ' + String(game.stats.kills).padStart(4), '번 돈 ' + String(game.stats.earned).padStart(5),
+  ].join('  '));
+  if (VERBOSE) {
+    console.log('     ' + describe(game));
+    if (leaks.length) console.log('     놓친 적: ' + leaks.slice(-6).join(', '));
+  }
+}
+
+if (process.argv.includes('--tune')) {
+  /* 봇 셋 가운데 가장 잘한 쪽의 결과를 기준으로 삼는다. */
+  const best = (stage) => Math.max(...Object.keys(STRATEGIES).map((st) => {
+    const { game } = play({ stage: stage.id }, st);
+    return game.phase === 'won' ? game.lives : 0;
+  }));
+  const search = (stage, ok) => {
+    let lo = 0.2;
+    let hi = 8;
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      stage.hp = mid;
+      if (ok(best(stage))) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  };
+  console.log('스테이지        지금   ★★★ 한계   통과 한계');
+  for (const stage of STAGES) {
+    const now = stage.hp;
+    const three = search(stage, (lives) => lives >= 18);
+    const clear = search(stage, (lives) => lives >= 1);
+    stage.hp = now;
+    console.log(`${String(stage.id).padStart(2)} ${pad(stage.name, 7)} ${now.toFixed(2).padStart(5)}   ${three.toFixed(2).padStart(6)}   ${clear.toFixed(2).padStart(8)}`);
+  }
+} else if (process.argv.includes('--challenge')) {
+  for (const map of MAPS) {
+    for (const diff of Object.keys(DIFFICULTY)) {
+      for (const strategy of Object.keys(STRATEGIES)) {
+        const { game, leaks } = play({ map: map.id, diff }, strategy);
+        report(pad(map.name, 7) + ' ' + pad(DIFFICULTY[diff].name, 3), strategy, game, leaks);
       }
+    }
+  }
+} else {
+  for (const stage of STAGES) {
+    for (const strategy of Object.keys(STRATEGIES)) {
+      const { game, leaks } = play({ stage: stage.id }, strategy);
+      report(String(stage.id).padStart(2) + ' ' + pad(stage.name, 7), strategy, game, leaks);
     }
   }
 }

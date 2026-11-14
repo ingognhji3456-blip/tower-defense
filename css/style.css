@@ -282,6 +282,10 @@ button { font: inherit; color: inherit; }
 .card.poor .card-ico, .card.poor .card-nm { opacity: 0.45; }
 .card.poor .card-cost { color: var(--vermilion); }
 .card[aria-pressed="true"] { border-color: var(--gold); background: var(--night-3); box-shadow: inset 0 0 0 1px var(--gold); }
+.card.locked { cursor: default; border-style: dashed; background: var(--night); }
+.card.locked .card-ico { opacity: 0.25; filter: grayscale(1); }
+.card.locked .card-nm { opacity: 0.5; }
+.card.locked .card-cost { color: var(--paper-dim); font-size: 10.5px; }
 
 /* ───── 넓은 화면: 서랍을 오른쪽으로 ───── */
 
@@ -344,12 +348,207 @@ button { font: inherit; color: inherit; }
   .tray { gap: 6px; }
 }
 
+@media (max-width: 520px) {
+  .stage-tag { display: none; }
+}
 @media (max-width: 420px) {
   #btn-sound { display: none; }
   .hud { gap: 10px; }
 }
 
-/* ───── 시작 화면 · 결과 ───── */
+/* ───── 로비와 그 아래 화면들 ───── */
+
+.screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) var(--gutter-r) calc(14px + env(safe-area-inset-bottom, 0px)) var(--gutter-l);
+  background:
+    radial-gradient(120% 80% at 50% 0%, #34406a 0%, transparent 70%),
+    var(--night);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.lobby, .board-screen {
+  width: min(100%, 880px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--night-2);
+  box-shadow: 0 24px 70px rgba(8, 10, 22, 0.55);
+}
+.lobby { width: min(100%, 560px); overflow: hidden; }
+.board-screen { padding: 14px 18px 20px; }
+.board-screen.narrow { width: min(100%, 620px); }
+
+.hero {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2.05 / 1;
+  background: #8ed05c;
+  border-bottom: 3px solid var(--ink);
+}
+.lobby-body { padding: 18px 22px 22px; }
+.lobby h1, .screen-head h2, .sheet h1, .sheet h2 {
+  margin: 2px 0 8px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+.lobby h1 { font-size: 46px; letter-spacing: 0.01em; }
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--gold);
+}
+.lede { margin: 0 0 14px; color: var(--paper-dim); max-width: 36em; }
+
+.progress { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.pill {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--night);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pill.gold { color: var(--gold); border-color: #7a6a3a; }
+
+.lobby-actions { display: grid; gap: 10px; }
+.lobby-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.lobby-row .btn { min-height: 42px; padding-inline: 6px; }
+.lobby-hint { margin: 0; min-height: 1.45em; font-size: 12px; color: var(--paper-dim); }
+.btn.big { min-height: 48px; font-size: 15px; }
+.btn.wide { width: 100%; }
+
+.screen-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.screen-head h2 { flex: 1; margin: 0; font-size: 26px; }
+.stars-total { font-weight: 700; color: var(--gold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 스테이지 선택 */
+.stage-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.stage-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-content: start; }
+.stage-tile {
+  min-width: 0;
+  aspect-ratio: 1 / 0.86;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--night-3);
+  cursor: pointer;
+}
+.stage-tile .num { font-family: var(--font-display); font-size: 28px; line-height: 1; }
+.tile-stars { font-size: 13px; letter-spacing: 1px; color: var(--gold); white-space: nowrap; }
+.stage-tile.done { background: #3a5a4a; border-color: #5c8f6c; }
+.stage-tile.locked { background: var(--night); border-style: dashed; cursor: default; }
+.stage-tile.locked .num { opacity: 0.35; }
+.stage-tile.locked .tile-stars { color: var(--paper-dim); letter-spacing: 0; font-size: 11px; }
+.stage-tile[aria-checked="true"] { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+
+.stage-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--night);
+}
+#stage-thumb { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: 8px; border: 2px solid var(--ink); }
+.stage-info { min-width: 0; display: grid; gap: 6px; align-content: start; }
+.stage-info h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 26px; line-height: 1.15; }
+.stage-meta { margin: 0; font-size: 13px; color: var(--paper-dim); font-variant-numeric: tabular-nums; }
+.stage-note { margin: 0; min-height: 2.9em; font-size: 13px; }
+.chips.wrap { flex-wrap: wrap; gap: 2px; }
+.chips.wrap .chip { padding: 0; }
+.chips.wrap .chip canvas { width: 36px; height: 36px; }
+
+@media (min-width: 720px) {
+  .stage-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
+}
+@media (max-width: 719px) and (min-width: 460px) {
+  .stage-detail { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr); }
+}
+
+/* 도전 모드 */
+.field { display: grid; gap: 6px; margin-bottom: 14px; }
+.maps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.map-btn {
+  min-width: 0;
+  padding: 5px;
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--night);
+  text-align: left;
+  cursor: pointer;
+}
+.map-btn canvas { width: 100%; aspect-ratio: 16 / 10; display: block; border-radius: 6px; margin-bottom: 3px; }
+.map-btn strong { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-btn span { font-size: 11px; color: var(--paper-dim); font-variant-numeric: tabular-nums; }
+.map-btn[aria-checked="true"] { border-color: var(--gold); background: var(--night-3); box-shadow: inset 0 0 0 1px var(--gold); }
+.map-note { margin: 0; font-size: 12px; color: var(--paper-dim); min-height: 1.45em; }
+@media (max-width: 480px) {
+  .maps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button {
+  padding: 9px 4px;
+  border: 0;
+  background: var(--night);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-checked="true"] { background: var(--gold); color: var(--ink); }
+
+/* 도감 */
+.codex-title { margin: 14px 0 8px; font-size: 14px; color: var(--paper-dim); }
+.codex-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 10px; }
+.codex-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--night);
+}
+.codex-card canvas { display: block; width: 100%; border-radius: 8px; background: #8ed05c; }
+.codex-card.enemy { grid-template-columns: 108px minmax(0, 1fr); align-items: start; }
+.codex-card h4 { margin: 0 0 4px; font-size: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.codex-card p { margin: 0 0 4px; font-size: 13px; color: var(--paper-dim); }
+.tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--night-3);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.codex-stats { display: flex; flex-wrap: wrap; gap: 2px 12px; font-variant-numeric: tabular-nums; }
+.codex-stats i { font-style: normal; margin-right: 4px; color: var(--paper); font-weight: 600; }
+.codex-card .codex-from { font-size: 12px; margin: 0; }
+
+/* ───── 일시정지 메뉴 · 결과 ───── */
 
 .overlay {
   position: fixed;
@@ -371,9 +570,8 @@ button { font: inherit; color: inherit; }
   border-radius: 14px;
   background: var(--night-2);
   box-shadow: 0 24px 70px rgba(4, 6, 16, 0.6);
-  -webkit-user-select: text;
-  user-select: text;
 }
+.sheet.small { width: min(100%, 340px); }
 /* 성벽의 톱니(성가퀴) */
 .sheet::before {
   content: "";
@@ -384,77 +582,38 @@ button { font: inherit; color: inherit; }
     linear-gradient(var(--stone), var(--stone)) left bottom / 100% 5px no-repeat,
     repeating-linear-gradient(90deg, var(--stone) 0 16px, transparent 16px 28px) left top / 100% 9px no-repeat;
 }
-
-.eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: var(--gold);
-}
-.sheet h1, .sheet h2 {
-  margin: 2px 0 8px;
-  font-family: var(--font-display);
-  font-weight: 400;
-  line-height: 1.1;
-  text-wrap: balance;
-}
-.sheet h1 { font-size: 48px; letter-spacing: 0.01em; }
 .sheet h2 { font-size: 32px; }
-.lede { margin: 0 0 18px; color: var(--paper-dim); max-width: 34em; }
+.stack { display: grid; gap: 10px; margin-top: 12px; }
 
-.field { display: grid; gap: 6px; margin-bottom: 14px; }
-
-.maps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.map-btn {
-  min-width: 0;
-  padding: 6px;
-  display: grid;
-  gap: 2px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--night);
-  text-align: left;
-  cursor: pointer;
-}
-.map-btn canvas { width: 100%; aspect-ratio: 16 / 10; display: block; border-radius: 6px; margin-bottom: 4px; }
-.map-btn strong { font-size: 13px; }
-.map-btn span { font-size: 11px; color: var(--paper-dim); font-variant-numeric: tabular-nums; }
-.map-btn[aria-checked="true"] { border-color: var(--gold); background: var(--night-3); box-shadow: inset 0 0 0 1px var(--gold); }
-.map-note { margin: 0; font-size: 12px; color: var(--paper-dim); min-height: 1.45em; }
-
-.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.seg button {
-  padding: 8px 4px;
-  border: 0;
-  background: var(--night);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.seg button + button { border-left: 1px solid var(--line); }
-.seg button[aria-checked="true"] { background: var(--gold); color: var(--ink); }
+.stars { display: flex; gap: 6px; margin: 2px 0 10px; font-size: 44px; line-height: 1; }
+.stars span { color: #4a5478; }
+.stars span.on { color: var(--gold); text-shadow: 0 2px 0 #9a7214; }
 
 .menu-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
-.menu-foot .btn { min-height: 40px; }
 .sheet .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-left: auto; }
-.sheet .actions .btn { min-height: 40px; padding-inline: 16px; font-size: 14px; }
+.sheet .actions .btn { min-height: 42px; padding-inline: 14px; font-size: 14px; }
 
-.tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 20px; }
+.tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 4px; }
 .tally div { padding: 10px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--night); }
 .tally dt { font-size: 12px; color: var(--paper-dim); }
 .tally dd { margin: 0; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
-@media (max-height: 560px) {
-  .sheet { padding: 22px 18px 16px; }
-  .sheet h1 { font-size: 34px; }
-  .lede { margin-bottom: 12px; }
-  .map-btn canvas { aspect-ratio: 16 / 7; }
+@media (max-height: 620px) {
+  .lobby h1 { font-size: 36px; }
+  .hero { aspect-ratio: 2.6 / 1; }
+  .lobby-body { padding: 12px 18px 16px; }
+  .lede { margin-bottom: 10px; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .overlay { animation: fade 0.25s ease-out; }
+  .overlay { animation: fade 0.22s ease-out; }
+  .screen > * { animation: arrive 0.22s ease-out; }
   .toast { animation: rise 0.2s ease-out; }
+  .stars span.on { animation: pop 0.4s ease-out backwards; }
+  .stars span.on:nth-child(2) { animation-delay: 0.15s; }
+  .stars span.on:nth-child(3) { animation-delay: 0.3s; }
 }
 @keyframes fade { from { opacity: 0.4; } to { opacity: 1; } }
+@keyframes arrive { from { opacity: 0.5; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes rise { from { opacity: 0.4; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes pop { from { transform: scale(0.3); opacity: 0; } 60% { transform: scale(1.25); } to { transform: scale(1); opacity: 1; } }

@@ -88,9 +88,13 @@ const TILE_TOWER = 3;
 
 class Game {
   constructor(opts = {}) {
-    this.map = MAPS.find((m) => m.id === opts.map) || MAPS[0];
-    this.diffId = DIFFICULTY[opts.diff] ? opts.diff : 'normal';
+    /* 스테이지를 주면 스테이지 규칙으로, 아니면 지도·난이도를 골라 30 웨이브를 버티는 도전 모드로 돈다. */
+    this.stage = STAGES.find((st) => st.id === opts.stage) || null;
+    this.map = MAPS.find((m) => m.id === (this.stage ? this.stage.map : opts.map)) || MAPS[0];
+    this.diffId = !this.stage && DIFFICULTY[opts.diff] ? opts.diff : 'normal';
     this.diff = DIFFICULTY[this.diffId];
+    this.finalWave = this.stage ? this.stage.waves.length : FINAL_WAVE;
+    this.allowed = this.stage ? this.stage.towers : TOWER_ORDER;
     this.rand = mulberry32(opts.seed || 20251114);
 
     this.paths = this.map.paths.map((w) => new TrackPath(w));
@@ -123,8 +127,9 @@ class Game {
       }
     }
 
-    this.gold = this.diff.gold;
-    this.lives = this.diff.lives;
+    this.gold = this.stage ? this.stage.gold : this.diff.gold;
+    this.lives = this.stage ? this.stage.lives : this.diff.lives;
+    this.maxLives = this.lives;
     this.wave = 0;
     this.phase = 'build'; // build | wave | won | lost
     this.endless = false;
@@ -146,6 +151,37 @@ class Game {
 
   emit(type, data) {
     if (this.listener) this.listener(type, data);
+  }
+
+  /* ───── 규칙: 스테이지냐 도전 모드냐에 따라 달라지는 값 ───── */
+
+  groups(wave) {
+    return this.stage ? this.stage.waves[wave - 1] || [] : waveGroups(wave);
+  }
+
+  preview(wave) {
+    return previewFrom(this.groups(wave));
+  }
+
+  hpAt(wave) {
+    return this.stage ? this.stage.hp * Math.pow(STAGE_GROWTH, wave - 1) : hpScale(wave) * this.diff.hp;
+  }
+
+  armorAt(wave) {
+    return this.stage ? (1 + 0.07 * (this.stage.id - 1)) * (1 + 0.04 * (wave - 1)) : 1 + 0.05 * (wave - 1);
+  }
+
+  rewardAt(wave) {
+    return this.stage ? this.stage.reward * (1 + 0.03 * (wave - 1)) : rewardScale(wave);
+  }
+
+  bonusAt(wave) {
+    return this.stage ? 20 + 3 * wave + 4 * (this.stage.id - 1) : waveBonus(wave);
+  }
+
+  /* 스테이지를 깼을 때의 별점 */
+  stars() {
+    return starsFor(this.maxLives - this.lives);
   }
 
   /* ───── 건설 ───── */
@@ -216,7 +252,7 @@ class Game {
 
   build(type, tx, ty) {
     const def = TOWERS[type];
-    if (!def || !this.canBuild(tx, ty)) return null;
+    if (!def || !this.allowed.includes(type) || !this.canBuild(tx, ty)) return null;
     if (this.phase === 'lost' || this.phase === 'won') return null;
     const cost = def.levels[0].cost;
     if (this.gold < cost) return null;
@@ -270,7 +306,7 @@ class Game {
     if (this.phase !== 'build') return false;
     this.snapshot = this.serialize();
     this.wave++;
-    this.queue = buildSchedule(this.wave);
+    this.queue = scheduleFrom(this.groups(this.wave));
     this.qi = 0;
     this.waveTime = 0;
     this.phase = 'wave';
@@ -281,7 +317,7 @@ class Game {
   }
 
   continueEndless() {
-    if (this.phase !== 'won') return false;
+    if (this.phase !== 'won' || this.stage) return false;
     this.endless = true;
     this.phase = 'build';
     return true;
@@ -291,7 +327,7 @@ class Game {
     const def = ENEMIES[type];
     const w = this.wave;
     const path = this.paths[this.spawnFlip++ % this.paths.length];
-    const hp = Math.round(def.hp * hpScale(w) * this.diff.hp);
+    const hp = Math.round(def.hp * this.hpAt(w));
     const e = {
       id: this.nextId++,
       type,
@@ -300,9 +336,9 @@ class Game {
       hp,
       maxHp: hp,
       speed: def.speed,
-      armor: Math.round(def.armor * (1 + 0.05 * (w - 1)) * 10) / 10,
+      armor: Math.round(def.armor * this.armorAt(w) * 10) / 10,
       phys: def.phys,
-      reward: Math.round(def.reward * rewardScale(w)),
+      reward: Math.round(def.reward * this.rewardAt(w)),
       lives: def.lives,
       boss: !!def.boss,
       path,
@@ -635,10 +671,10 @@ class Game {
   }
 
   endWave() {
-    const bonus = waveBonus(this.wave);
+    const bonus = this.bonusAt(this.wave);
     this.gold += bonus;
     this.stats.earned += bonus;
-    if (this.wave >= FINAL_WAVE && !this.endless) {
+    if (this.wave >= this.finalWave && !this.endless) {
       this.phase = 'won';
       this.emit('waveclear', { wave: this.wave, bonus });
       this.emit('won', {});
@@ -652,7 +688,8 @@ class Game {
 
   serialize() {
     return {
-      v: 2,
+      v: 3,
+      stage: this.stage ? this.stage.id : null,
       map: this.map.id,
       diff: this.diffId,
       gold: this.gold,
@@ -665,12 +702,14 @@ class Game {
   }
 
   static fromSave(d) {
-    if (!d || d.v !== 2 || !MAPS.some((m) => m.id === d.map)) return null;
-    const g = new Game({ map: d.map, diff: d.diff });
+    if (!d || d.v !== 3 || !MAPS.some((m) => m.id === d.map)) return null;
+    if (d.stage != null && !STAGES.some((st) => st.id === d.stage)) return null;
+    const g = new Game({ stage: d.stage, map: d.map, diff: d.diff });
     g.gold = Math.max(0, d.gold | 0);
     g.lives = Math.max(1, d.lives | 0);
     g.wave = Math.max(0, d.wave | 0);
-    g.endless = !!d.endless || g.wave >= FINAL_WAVE;
+    g.endless = !g.stage && (!!d.endless || g.wave >= FINAL_WAVE);
+    if (g.stage) g.wave = Math.min(g.wave, g.finalWave - 1);
     for (const s of d.towers || []) {
       if (!TOWERS[s.t] || !g.canBuild(s.x | 0, s.y | 0)) continue;
       const t = g.addTower(s.t, s.x | 0, s.y | 0);

@@ -1,10 +1,11 @@
 'use strict';
-/* 철벽 요새 — 화면 조작, 메뉴, 저장, 게임 루프 */
+/* 철벽 요새 — 로비·스테이지 선택·도감 같은 화면, 게임 조작, 저장, 게임 루프 */
 
 (function () {
   const $ = (id) => document.getElementById(id);
   const STEP = 1 / 60;
-  const KEY = { settings: 'ironwall.settings', save: 'ironwall.save', best: 'ironwall.best' };
+  const KEY = { settings: 'ironwall.settings', save: 'ironwall.save', best: 'ironwall.best', progress: 'ironwall.progress' };
+  const CHALLENGE_UNLOCK = 5; /* 이 스테이지를 깨면 도전 모드가 열린다 */
 
   /* 저장소는 막혀 있을 수 있다(사생활 보호 창 등). 없어도 게임은 돌아가야 한다. */
   const store = {
@@ -25,27 +26,34 @@
   };
 
   const el = {
-    stage: $('stage'), board: $('board'), toast: $('toast'), tray: $('tray'),
-    lives: $('hud-lives'), statLives: $('stat-lives'), gold: $('hud-gold'), wave: $('hud-wave'), of: $('hud-of'),
-    speed: $('btn-speed'), pause: $('btn-pause'), sound: $('btn-sound'), sound2: $('btn-sound2'), menuBtn: $('btn-menu'),
+    app: $('app'), stage: $('stage'), board: $('board'), toast: $('toast'), tray: $('tray'),
+    lives: $('hud-lives'), statLives: $('stat-lives'), gold: $('hud-gold'), wave: $('hud-wave'), of: $('hud-of'), hudStage: $('hud-stage'),
+    speed: $('btn-speed'), pause: $('btn-pause'), menuBtn: $('btn-menu'),
     waveLabel: $('wave-label'), chips: $('wave-chips'), remain: $('wave-remain'), auto: $('opt-auto'), start: $('btn-start'),
     placing: $('placing'), plcName: $('plc-name'), plcStats: $('plc-stats'), plcBlurb: $('plc-blurb'), cancel: $('btn-cancel'),
     shop: $('shop'),
     selected: $('selected'), selName: $('sel-name'), selLevel: $('sel-level'), selStats: $('sel-stats'),
     upgrade: $('btn-upgrade'), sell: $('btn-sell'), target: $('btn-target'), close: $('btn-close'),
-    menu: $('menu'), maps: $('maps'), mapNote: $('map-note'), diffs: $('diffs'),
-    resume: $('btn-resume'), cont: $('btn-continue'), fresh: $('btn-new'),
-    result: $('result'), resEyebrow: $('result-eyebrow'), resTitle: $('result-title'), resText: $('result-text'),
+
+    lobby: $('lobby'), hero: $('hero'), lobbyProgress: $('lobby-progress'), play: $('btn-play'), cont: $('btn-continue'),
+    challengeBtn: $('btn-challenge'), codexBtn: $('btn-codex'), lobbyHint: $('lobby-hint'),
+    stages: $('stages'), stagesBack: $('btn-stages-back'), stagesTotal: $('stages-total'), stageGrid: $('stage-grid'),
+    stageThumb: $('stage-thumb'), stageNo: $('stage-no'), stageName: $('stage-name'), stageMeta: $('stage-meta'),
+    stageEnemies: $('stage-enemies'), stageNote: $('stage-note'), stageStart: $('btn-stage-start'),
+    challenge: $('challenge'), challengeBack: $('btn-challenge-back'), maps: $('maps'), mapNote: $('map-note'), diffs: $('diffs'), challengeStart: $('btn-challenge-start'),
+    codex: $('codex'), codexBack: $('btn-codex-back'), codexTowers: $('codex-towers'), codexEnemies: $('codex-enemies'),
+    pauseSheet: $('pause'), pauseEyebrow: $('pause-eyebrow'), pauseTitle: $('pause-title'), resume: $('btn-resume'), restart: $('btn-restart'), quit: $('btn-quit'),
+    result: $('result'), resEyebrow: $('result-eyebrow'), resTitle: $('result-title'), resStars: $('result-stars'), resText: $('result-text'),
     tallyWave: $('tally-wave'), tallyKills: $('tally-kills'), tallyLives: $('tally-lives'),
-    home: $('btn-home'), endless: $('btn-endless'), retry: $('btn-retry'),
+    home: $('btn-home'), endless: $('btn-endless'), retry: $('btn-retry'), next: $('btn-next'),
   };
 
   const app = {
+    screen: 'lobby', /* lobby | stages | challenge | codex | game */
     game: null,
-    demo: true,
     renderer: new Renderer(el.board),
     paused: false,
-    menuOpen: true,
+    menuOpen: false,
     placing: null,
     hover: null,
     selected: null,
@@ -53,21 +61,43 @@
     time: 0,
     last: 0,
     autoWait: 0,
-    demoWait: 0,
     resultAt: 0,
     confirmUntil: 0,
     toastTimer: 0,
     seen: {},
     cards: {},
+    pick: 1,
+    heroBack: null,
     settings: Object.assign({ map: MAPS[0].id, diff: 'normal', sound: true, auto: false, speed: 1 }, store.get(KEY.settings, {})),
     best: store.get(KEY.best, {}) || {},
+    progress: store.get(KEY.progress, {}) || {},
     save: store.get(KEY.save, null),
   };
   if (!MAPS.some((m) => m.id === app.settings.map)) app.settings.map = MAPS[0].id;
   if (!DIFFICULTY[app.settings.diff]) app.settings.diff = 'normal';
   if (![1, 2, 3].includes(app.settings.speed)) app.settings.speed = 1;
+  if (!app.progress.stars || typeof app.progress.stars !== 'object') app.progress.stars = {};
 
   const saveSettings = () => store.set(KEY.settings, app.settings);
+
+  /* ───── 진행도 ───── */
+
+  const starsOf = (id) => Math.max(0, Math.min(3, app.progress.stars[id] | 0));
+  const unlocked = (id) => id === 1 || starsOf(id - 1) > 0;
+  const totalStars = () => STAGES.reduce((n, st) => n + starsOf(st.id), 0);
+  const clearedCount = () => STAGES.filter((st) => starsOf(st.id) > 0).length;
+  const frontier = () => (STAGES.find((st) => starsOf(st.id) === 0) || STAGES[STAGES.length - 1]).id;
+  const unlockStage = (type) => (STAGES.find((st) => st.towers.includes(type)) || STAGES[0]).id;
+  const firstSeen = (type) => (STAGES.find((st) => st.enemies.includes(type)) || STAGES[0]).id;
+  const challengeOpen = () => starsOf(CHALLENGE_UNLOCK) > 0;
+  const starText = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+
+  /* 받침에 맞는 조사를 붙인다: josa('늑대', '을', '를') → '늑대를' */
+  function josa(word, withFinal, without) {
+    const code = word.charCodeAt(word.length - 1) - 0xac00;
+    const final = code >= 0 && code <= 11171 ? code % 28 !== 0 : false;
+    return word + (final ? withFinal : without);
+  }
 
   /* ───── 알림 ───── */
 
@@ -85,37 +115,32 @@
 
   /* ───── 능력치 표기 ───── */
 
-  function statList(type, lv, next) {
+  function statDefs(type) {
     const f1 = (n) => String(Math.round(n * 10) / 10);
-    const out = [];
-    const add = (label, get, unit) => {
-      const a = get(lv) + (unit || '');
-      const b = next ? get(next) + (unit || '') : a;
-      out.push({ label, value: a, next: b !== a ? b : null });
-    };
     switch (type) {
       case 'frost':
-        add('둔화', (l) => Math.round(l.slow * 100), '%');
-        add('거리', (l) => f1(l.range));
-        if (lv.vuln || (next && next.vuln)) add('받는 피해', (l) => '+' + Math.round((l.vuln || 0) * 100), '%');
-        break;
+        return [
+          ['둔화', (l) => Math.round(l.slow * 100) + '%'],
+          ['거리', (l) => f1(l.range)],
+          ['받는 피해', (l) => (l.vuln ? '+' + Math.round(l.vuln * 100) + '%' : '—')],
+        ];
       case 'rocket':
-        add('피해', (l) => l.dmg + '×' + l.rockets);
-        add('장전', (l) => f1(l.cd), '초');
-        add('거리', (l) => f1(l.range));
-        break;
+        return [['피해', (l) => l.dmg + '×' + l.rockets], ['장전', (l) => f1(l.cd) + '초'], ['거리', (l) => f1(l.range)]];
       case 'tesla':
-        add('피해', (l) => l.dmg);
-        add('연쇄', (l) => l.chain);
-        add('연사', (l) => f1(1 / l.cd));
-        add('거리', (l) => f1(l.range));
-        break;
+        return [['피해', (l) => String(l.dmg)], ['연쇄', (l) => String(l.chain)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
       default:
-        add('피해', (l) => l.dmg);
-        add('연사', (l) => f1(1 / l.cd));
-        add('거리', (l) => f1(l.range));
+        return [['피해', (l) => String(l.dmg)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
     }
-    return out;
+  }
+
+  function statList(type, lv, next) {
+    return statDefs(type)
+      .map(([label, get]) => {
+        const a = get(lv);
+        const b = next ? get(next) : a;
+        return { label, value: a, next: b !== a ? b : null };
+      })
+      .filter((s) => s.value !== '—' || s.next);
   }
 
   function fillStats(node, list) {
@@ -134,7 +159,531 @@
     }
   }
 
-  /* ───── 상점·메뉴 만들기 ───── */
+  /* ───── 작은 그림들 ───── */
+
+  /* 적 그림이 든 단추. label 은 '×8' 같은 덧붙임 글, onInfo 는 눌렀을 때 설명을 보여 줄 곳. */
+  function enemyChip(type, label, onInfo) {
+    const def = ENEMIES[type];
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.title = def.name + ' — ' + def.trait;
+    chip.setAttribute('aria-label', def.name + (label ? ' ' + label : ''));
+    const cv = document.createElement('canvas');
+    cv.width = 64;
+    cv.height = 64;
+    const c = cv.getContext('2d');
+    c.translate(31, 40);
+    const s = 14.5 / def.r;
+    c.scale(s, s);
+    drawEnemySprite(c, type, def.r, 0.3, { seed: 1 });
+    chip.append(cv);
+    if (label) chip.append(label);
+    chip.addEventListener('click', () => onInfo(def.name + ' — ' + def.trait));
+    return chip;
+  }
+
+  function drawThumb(canvas, map) {
+    const c = canvas.getContext('2d');
+    const s = canvas.width / COLS;
+    const dot = (x, y, r, fill) => {
+      c.fillStyle = ART.OUT;
+      c.beginPath();
+      c.arc(x, y, r + Math.max(1.5, s * 0.07), 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = fill;
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fill();
+    };
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        c.fillStyle = ART.grass[(x + y) % 2];
+        c.fillRect(x * s, y * s, s + 0.5, s + 0.5);
+      }
+    }
+    c.lineJoin = 'round';
+    c.lineCap = 'round';
+    for (const [color, width] of [[ART.pathEdge, 0.95], [ART.path, 0.62]]) {
+      c.strokeStyle = color;
+      c.lineWidth = s * width;
+      for (const w of map.paths) {
+        c.beginPath();
+        w.forEach(([x, y], i) => (i ? c.lineTo((x + 0.5) * s, (y + 0.5) * s) : c.moveTo((x + 0.5) * s, (y + 0.5) * s)));
+        c.stroke();
+      }
+    }
+    for (const [kind, x, y] of map.deco) {
+      c.fillStyle = kind === 'pond' ? '#49b4ea' : kind === 'rock' ? '#9aa3b2' : '#3a8a3c';
+      c.beginPath();
+      c.arc((x + 0.5) * s, (y + 0.5) * s, s * 0.3, 0, Math.PI * 2);
+      c.fill();
+    }
+    /* 보라 = 괴수 굴, 파랑 = 성문 */
+    for (const w of map.paths) dot((w[0][0] + 0.5) * s, (w[0][1] + 0.5) * s, s * 0.5, ART.purple[1]);
+    const end = map.paths[0][map.paths[0].length - 1];
+    dot((end[0] + 0.5) * s, (end[1] + 0.5) * s, s * 0.55, ART.blue[0]);
+  }
+
+  /* ───── 화면 전환 ───── */
+
+  const SCREENS = { lobby: el.lobby, stages: el.stages, challenge: el.challenge, codex: el.codex };
+
+  function show(name) {
+    app.screen = name;
+    el.app.hidden = name !== 'game';
+    for (const k of Object.keys(SCREENS)) {
+      SCREENS[k].hidden = k !== name;
+      if (k === name) SCREENS[k].scrollTop = 0;
+    }
+    if (name !== 'game') {
+      el.pauseSheet.hidden = true;
+      el.result.hidden = true;
+      app.menuOpen = false;
+    }
+    if (name === 'lobby') refreshLobby();
+    else if (name === 'stages') refreshStages();
+    else if (name === 'challenge') refreshChallenge();
+    else if (name === 'game') layout();
+  }
+
+  /* ───── 로비 ───── */
+
+  function refreshLobby() {
+    el.lobbyProgress.textContent = '';
+    const pill = (text, cls) => {
+      const p = document.createElement('span');
+      p.className = 'pill' + (cls ? ' ' + cls : '');
+      p.textContent = text;
+      el.lobbyProgress.append(p);
+    };
+    pill('★ ' + totalStars() + ' / ' + STAGES.length * 3, 'gold');
+    pill('스테이지 ' + clearedCount() + ' / ' + STAGES.length);
+    el.play.textContent = clearedCount() === 0 ? '게임 시작' : '스테이지 선택';
+
+    const s = app.save;
+    const ok = s && s.v === 3 && MAPS.some((m) => m.id === s.map);
+    el.cont.hidden = !ok;
+    if (ok) {
+      const where = s.stage != null ? '스테이지 ' + s.stage : '도전 ' + MAPS.find((m) => m.id === s.map).name;
+      el.cont.textContent = '이어하기 · ' + where + ' · 웨이브 ' + (s.wave + 1);
+    }
+    el.challengeBtn.disabled = !challengeOpen();
+    el.lobbyHint.textContent = challengeOpen() ? '' : '도전 모드는 스테이지 ' + CHALLENGE_UNLOCK + '를 깨면 열립니다.';
+    setSoundLabel();
+  }
+
+  /* 로비 머리 그림: 다섯 탑이 늘어선 성문 앞으로 괴수들이 몰려오는 모습 */
+  function drawHero(t) {
+    const cv = el.hero;
+    const cssW = cv.clientWidth;
+    const cssH = cv.clientHeight;
+    if (cssW < 40 || cssH < 20) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.round(cssW * dpr);
+    const H = Math.round(cssH * dpr);
+    if (cv.width !== W || cv.height !== H) {
+      cv.width = W;
+      cv.height = H;
+      app.heroBack = null;
+    }
+    const WIDE = 9.6; /* 그림의 가로 폭(타일) */
+    const k = W / WIDE;
+    const high = H / k;
+    const road = high - 0.95; /* 길 가운데 높이 */
+    const row = road - 1.02; /* 탑이 선 칸의 중심 높이 */
+    const order = TOWER_ORDER.map((type, i) => ({ type, x: 1.95 + i * 1.42 }));
+    const at = (g, x, y, fn) => {
+      g.save();
+      g.translate(x * k, y * k);
+      g.scale(k, k);
+      fn(g);
+      g.restore();
+    };
+
+    if (!app.heroBack) {
+      /* 움직이지 않는 부분은 한 번만 그려 둔다 */
+      const b = document.createElement('canvas');
+      b.width = W;
+      b.height = H;
+      const g = b.getContext('2d');
+      const sky = g.createLinearGradient(0, 0, 0, H * 0.5);
+      sky.addColorStop(0, '#8fd0ff');
+      sky.addColorStop(1, '#e4f5ff');
+      g.fillStyle = sky;
+      g.fillRect(0, 0, W, H);
+      const rand = mulberry32(4242);
+      for (const [f, color, rad] of [[0.34, '#5aa878', 0.95], [0.43, '#3d9146', 0.7], [0.5, '#4fa64f', 0.55]]) {
+        g.fillStyle = color;
+        for (let x = -0.4; x < WIDE + 0.6; x += 0.7) {
+          g.beginPath();
+          g.arc((x + (rand() - 0.5) * 0.3) * k, high * f * k, rad * k * (0.85 + rand() * 0.3), 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+      g.fillStyle = ART.grass[0];
+      g.fillRect(0, high * 0.5 * k, W, H);
+      g.fillStyle = ART.grass[1];
+      for (let x = 0; x < WIDE; x += 2) g.fillRect(x * k, high * 0.5 * k, k, H);
+      g.fillStyle = 'rgba(60,90,40,.35)';
+      g.fillRect(0, (road - 0.5) * k, W, 1.0 * k);
+      g.fillStyle = ART.pathEdge;
+      g.fillRect(0, (road - 0.46) * k, W, 0.92 * k);
+      g.fillStyle = ART.path;
+      g.fillRect(0, (road - 0.39) * k, W, 0.78 * k);
+      for (let i = 0; i < 60; i++) {
+        g.fillStyle = rand() > 0.5 ? 'rgba(150,115,60,.35)' : 'rgba(255,240,200,.45)';
+        g.beginPath();
+        g.ellipse(rand() * W, (road - 0.3 + rand() * 0.6) * k, k * 0.04, k * 0.025, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+      for (const [kind, x] of [['pine', 1.2], ['tree', 9.0]]) at(g, x, row - 0.2, (c) => TERRAIN_ART.deco[kind](c, 3));
+      for (const o of order) at(g, o.x, row, (c) => TOWER_ART[o.type].body(c, 2));
+      app.heroBack = b;
+    }
+
+    const g = cv.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.drawImage(app.heroBack, 0, 0);
+    for (const o of order) {
+      const art = TOWER_ART[o.type];
+      at(g, o.x, row, (c) => {
+        art.top(c, 2, 0.75 + Math.sin(t * 0.7 + o.x) * 0.45, { recoil: 0, flash: 0, t: t + o.x });
+        if (art.front) art.front(c, 2);
+      });
+    }
+    at(g, 0.5, road - 0.05, (c) => TERRAIN_ART.cave(c, t));
+    at(g, WIDE - 0.62, road - 0.1, (c) => TERRAIN_ART.gate(c, t, 0));
+    /* 굴에서 성문으로 가는 행렬 */
+    const march = [['dragon', 2.35], ['raptor', 3.75], ['scorpion', 4.85], ['beetle', 5.85], ['wolf', 6.65], ['hornet', 7.3], ['ant', 7.85], ['ant', 8.3]];
+    march.forEach(([type, x], i) => {
+      const def = ENEMIES[type];
+      const y = road + 0.28 - def.r;
+      const art = ENEMY_ART[type];
+      if (def.tail && art.segment) {
+        for (let n = def.tail.n; n >= 1; n--) at(g, x - n * def.tail.gap, y, (c) => art.segment(c, def.r, n, def.tail.n, t));
+      }
+      at(g, x, y, (c) => art.draw(c, def.r, t + i * 0.37, { seed: i }));
+    });
+  }
+
+  /* ───── 스테이지 선택 ───── */
+
+  function buildStageGrid() {
+    for (const st of STAGES) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'stage-tile';
+      b.setAttribute('role', 'radio');
+      b.dataset.stage = String(st.id);
+      const num = document.createElement('span');
+      num.className = 'num';
+      num.textContent = String(st.id);
+      const stars = document.createElement('span');
+      stars.className = 'tile-stars';
+      b.append(num, stars);
+      b.addEventListener('click', () => {
+        Sfx.play('click');
+        app.pick = st.id;
+        refreshStages();
+      });
+      el.stageGrid.append(b);
+    }
+  }
+
+  function refreshStages() {
+    if (!unlocked(app.pick)) app.pick = frontier();
+    el.stagesTotal.textContent = '★ ' + totalStars() + ' / ' + STAGES.length * 3;
+    for (const b of el.stageGrid.children) {
+      const id = Number(b.dataset.stage);
+      const open = unlocked(id);
+      b.disabled = !open;
+      b.classList.toggle('locked', !open);
+      b.classList.toggle('done', starsOf(id) > 0);
+      b.setAttribute('aria-checked', String(id === app.pick));
+      b.setAttribute('aria-label', '스테이지 ' + id + (open ? ', 별 ' + starsOf(id) + '개' : ', 잠김'));
+      b.title = open ? STAGES[id - 1].name : '앞 스테이지를 깨면 열립니다';
+      b.lastChild.textContent = open ? starText(starsOf(id)) : '잠김';
+    }
+    const st = STAGES.find((s) => s.id === app.pick);
+    const map = MAPS.find((m) => m.id === st.map);
+    drawThumb(el.stageThumb, map);
+    el.stageNo.textContent = '스테이지 ' + st.id + (starsOf(st.id) ? ' · ' + starText(starsOf(st.id)) : '');
+    el.stageName.textContent = st.name;
+    el.stageMeta.textContent = map.name + ' · 웨이브 ' + st.waves.length + ' · 시작 골드 ' + st.gold + ' · 목숨 ' + st.lives;
+    const news = [];
+    if (st.newTowers.length) news.push('새 탑: ' + st.newTowers.map((t) => TOWERS[t].name).join(', '));
+    if (st.newEnemies.length && st.id > 1) news.push('새 괴수: ' + st.newEnemies.map((t) => ENEMIES[t].name).join(', '));
+    const base = (news.length ? news.join(' · ') + '. ' : '') + map.note;
+    el.stageNote.textContent = base;
+    el.stageEnemies.textContent = '';
+    for (const type of st.enemies) el.stageEnemies.append(enemyChip(type, '', (text) => { el.stageNote.textContent = text; }));
+    el.stageStart.textContent = starsOf(st.id) ? '다시 도전' : '시작';
+  }
+
+  /* ───── 도전 모드 ───── */
+
+  function bestText(mapId) {
+    const b = app.best[mapId + ':' + app.settings.diff];
+    if (!b || !b.wave) return '기록 없음';
+    return b.won ? (b.wave > FINAL_WAVE ? '지켜냄 · ' + b.wave : '지켜냄') : '최고 ' + b.wave;
+  }
+
+  function buildChallenge() {
+    for (const map of MAPS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'map-btn';
+      b.setAttribute('role', 'radio');
+      b.dataset.map = map.id;
+      const cv = document.createElement('canvas');
+      cv.width = 240;
+      cv.height = 150;
+      drawThumb(cv, map);
+      const name = document.createElement('strong');
+      name.textContent = map.name;
+      const best = document.createElement('span');
+      b.append(cv, name, best);
+      b.addEventListener('click', () => {
+        Sfx.play('click');
+        app.settings.map = map.id;
+        saveSettings();
+        refreshChallenge();
+      });
+      el.maps.append(b);
+    }
+    for (const id of Object.keys(DIFFICULTY)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.dataset.diff = id;
+      b.textContent = DIFFICULTY[id].name;
+      b.addEventListener('click', () => {
+        Sfx.play('click');
+        app.settings.diff = id;
+        saveSettings();
+        refreshChallenge();
+      });
+      el.diffs.append(b);
+    }
+  }
+
+  function refreshChallenge() {
+    for (const b of el.maps.children) {
+      b.setAttribute('aria-checked', String(b.dataset.map === app.settings.map));
+      b.lastChild.textContent = bestText(b.dataset.map);
+    }
+    for (const b of el.diffs.children) b.setAttribute('aria-checked', String(b.dataset.diff === app.settings.diff));
+    const map = MAPS.find((m) => m.id === app.settings.map);
+    const d = DIFFICULTY[app.settings.diff];
+    el.mapNote.textContent = map.note + ' 골드 ' + d.gold + ', 목숨 ' + d.lives + '개로 시작합니다.';
+  }
+
+  /* ───── 도감 ───── */
+
+  function buildCodex() {
+    for (const type of TOWER_ORDER) {
+      const def = TOWERS[type];
+      const card = document.createElement('article');
+      card.className = 'codex-card';
+      const cv = document.createElement('canvas');
+      cv.width = 420;
+      cv.height = 236;
+      const c = cv.getContext('2d');
+      for (let lv = 0; lv < 3; lv++) {
+        c.save();
+        c.translate(72 + lv * 138, 182);
+        c.scale(100, 100);
+        drawTowerSprite(c, type, lv, 0.55, { t: 0.4 });
+        c.restore();
+      }
+      const body = document.createElement('div');
+      const h = document.createElement('h4');
+      h.textContent = def.name;
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = def.levels.map((l) => l.cost).join(' · ') + ' G';
+      h.append(tag);
+      const p = document.createElement('p');
+      p.textContent = def.blurb;
+      const stats = document.createElement('p');
+      stats.className = 'codex-stats';
+      for (const [label, get] of statDefs(type)) {
+        const s = document.createElement('span');
+        const i = document.createElement('i');
+        i.textContent = label;
+        s.append(i, def.levels.map(get).join(' → '));
+        stats.append(s);
+      }
+      const from = document.createElement('p');
+      from.className = 'codex-from';
+      from.textContent = unlockStage(type) === 1 ? '처음부터 쓸 수 있습니다.' : '스테이지 ' + unlockStage(type) + '부터 쓸 수 있습니다.';
+      body.append(h, p, stats, from);
+      card.append(cv, body);
+      el.codexTowers.append(card);
+    }
+    for (const type of Object.keys(ENEMIES)) {
+      const def = ENEMIES[type];
+      const card = document.createElement('article');
+      card.className = 'codex-card enemy';
+      const cv = document.createElement('canvas');
+      cv.width = 240;
+      cv.height = 190;
+      const c = cv.getContext('2d');
+      c.fillStyle = ART.path;
+      c.fillRect(0, 0, 240, 190);
+      const s = (def.boss ? 44 : 50) / def.r;
+      c.translate(def.tail ? 150 : 114, 118);
+      c.scale(s, s);
+      const art = ENEMY_ART[type];
+      if (def.tail && art.segment) {
+        for (let n = 3; n >= 1; n--) {
+          c.save();
+          c.translate(-n * def.tail.gap, 0);
+          art.segment(c, def.r, n, def.tail.n, 0.3);
+          c.restore();
+        }
+      }
+      drawEnemySprite(c, type, def.r, 0.3, { seed: 2 });
+      const body = document.createElement('div');
+      const h = document.createElement('h4');
+      h.textContent = def.name;
+      const tags = [];
+      if (def.boss) tags.push('우두머리');
+      if (def.speed >= 1.3 && !def.boss) tags.push('빠름');
+      if (def.armor > 0) tags.push('갑옷');
+      if (def.phys < 1) tags.push('회피');
+      for (const text of tags) {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = text;
+        h.append(tag);
+      }
+      const p = document.createElement('p');
+      p.textContent = def.trait;
+      const from = document.createElement('p');
+      from.className = 'codex-from';
+      from.textContent = '스테이지 ' + firstSeen(type) + '에서 처음 나옵니다. 놓치면 목숨 ' + (def.lives > 20 ? '전부' : def.lives + '개') + '를 잃습니다.';
+      body.append(h, p, from);
+      card.append(cv, body);
+      el.codexEnemies.append(card);
+    }
+  }
+
+  /* ───── 게임 시작·저장 ───── */
+
+  function persist(data) {
+    app.save = data;
+    if (data) store.set(KEY.save, data);
+    else store.del(KEY.save);
+  }
+
+  function record(game, wave, won) {
+    const key = game.map.id + ':' + game.diffId;
+    const cur = app.best[key] || { wave: 0, won: false };
+    if (wave > cur.wave || (won && !cur.won)) {
+      app.best[key] = { wave: Math.max(wave, cur.wave), won: won || cur.won };
+      store.set(KEY.best, app.best);
+    }
+  }
+
+  function onGameEvent(type, d) {
+    const game = app.game;
+    if (!game) return;
+    app.renderer.onEvent(type, d);
+    Sfx.onEvent(type, d);
+    switch (type) {
+      case 'wavestart':
+        persist(game.snapshot);
+        break;
+      case 'waveclear':
+        if (!game.stage) record(game, d.wave, false);
+        if (game.phase === 'build') persist(game.serialize());
+        break;
+      case 'won':
+        if (game.stage) {
+          const got = game.stars();
+          if (got > starsOf(game.stage.id)) {
+            app.progress.stars[game.stage.id] = got;
+            store.set(KEY.progress, app.progress);
+          }
+        } else {
+          record(game, FINAL_WAVE, true);
+        }
+        persist(null);
+        app.resultAt = app.time + 1.4;
+        break;
+      case 'lost':
+        if (!game.stage) record(game, game.wave - 1, false);
+        persist(null);
+        app.resultAt = app.time + 1.4;
+        break;
+    }
+  }
+
+  function begin(game) {
+    app.game = game;
+    app.acc = 0;
+    app.autoWait = 0;
+    app.resultAt = 0;
+    app.confirmUntil = 0;
+    app.selected = null;
+    app.placing = null;
+    app.seen = {};
+    app.menuOpen = false;
+    el.pauseSheet.hidden = true;
+    el.result.hidden = true;
+    if (app.paused) togglePause();
+    app.renderer.setGame(game);
+    game.listener = onGameEvent;
+    el.hudStage.textContent = game.stage ? '스테이지 ' + game.stage.id + ' · ' : '도전 · ';
+    refreshShopLocks();
+    refreshPanels();
+    show('game');
+  }
+
+  function startStage(id) {
+    const st = STAGES.find((s) => s.id === id);
+    if (!st || !unlocked(id)) return;
+    begin(new Game({ stage: id, seed: (Math.random() * 2 ** 31) | 0 }));
+    app.renderer.banner = { title: '스테이지 ' + id, sub: st.name, life: 2.6, max: 2.6 };
+    const news = [];
+    if (st.newTowers.length) news.push('새 탑 ' + josa(st.newTowers.map((t) => TOWERS[t].name).join(', '), '을', '를') + ' 쓸 수 있습니다.');
+    if (st.newEnemies.length && id > 1) news.push('새 괴수 ' + josa(st.newEnemies.map((t) => ENEMIES[t].name).join(', '), '이', '가') + ' 나옵니다.');
+    toast(news.length ? news.join(' ') : '탑을 골라 길가 빈 땅에 세운 뒤 시작을 누르세요.', 6000);
+  }
+
+  function startChallenge(mapId, diffId) {
+    begin(new Game({ map: mapId || app.settings.map, diff: diffId || app.settings.diff, seed: (Math.random() * 2 ** 31) | 0 }));
+    toast('서른 웨이브를 버텨 보세요.', 4000);
+  }
+
+  function loadGame(save) {
+    const game = Game.fromSave(save);
+    if (!game) {
+      persist(null);
+      return false;
+    }
+    begin(game);
+    return true;
+  }
+
+  function restart() {
+    const g = app.game;
+    if (!g) return;
+    if (g.stage) startStage(g.stage.id);
+    else startChallenge(g.map.id, g.diffId);
+  }
+
+  /* 하던 판을 접고 로비로. 웨이브 사이였다면 지금 상태를, 싸우던 중이면 그 웨이브 시작 전 상태를 남긴다. */
+  function quit() {
+    const g = app.game;
+    if (g && (g.phase === 'build' || g.phase === 'wave')) persist(g.phase === 'build' ? g.serialize() : g.snapshot);
+    app.game = null;
+    show('lobby');
+  }
+
+  /* ───── 상점 ───── */
 
   function buildShop() {
     TOWER_ORDER.forEach((type, i) => {
@@ -157,10 +706,6 @@
       nm.textContent = def.name;
       const cost = document.createElement('span');
       cost.className = 'card-cost';
-      cost.append(String(def.levels[0].cost));
-      const unit = document.createElement('i');
-      unit.textContent = 'G';
-      cost.append(unit);
       const key = document.createElement('span');
       key.className = 'card-key';
       key.textContent = String(i + 1);
@@ -174,227 +719,32 @@
     });
   }
 
-  function drawThumb(canvas, map) {
-    const c = canvas.getContext('2d');
-    const s = canvas.width / COLS;
-    const dot = (x, y, r, fill) => {
-      c.fillStyle = ART.OUT;
-      c.beginPath();
-      c.arc(x, y, r + 2, 0, Math.PI * 2);
-      c.fill();
-      c.fillStyle = fill;
-      c.beginPath();
-      c.arc(x, y, r, 0, Math.PI * 2);
-      c.fill();
-    };
-    c.fillStyle = ART.grass[1];
-    c.fillRect(0, 0, canvas.width, canvas.height);
-    c.lineJoin = 'round';
-    c.lineCap = 'round';
-    for (const [color, width] of [[ART.pathEdge, 0.95], [ART.path, 0.62]]) {
-      c.strokeStyle = color;
-      c.lineWidth = s * width;
-      for (const w of map.paths) {
-        c.beginPath();
-        w.forEach(([x, y], i) => (i ? c.lineTo((x + 0.5) * s, (y + 0.5) * s) : c.moveTo((x + 0.5) * s, (y + 0.5) * s)));
-        c.stroke();
+  /* 이 판에서 쓸 수 없는 탑은 잠가 둔다. */
+  function refreshShopLocks() {
+    const g = app.game;
+    for (const type of TOWER_ORDER) {
+      const card = app.cards[type];
+      const open = !g || g.allowed.includes(type);
+      card.disabled = !open;
+      card.classList.toggle('locked', !open);
+      const cost = card.querySelector('.card-cost');
+      cost.textContent = '';
+      if (open) {
+        cost.append(String(TOWERS[type].levels[0].cost));
+        const unit = document.createElement('i');
+        unit.textContent = 'G';
+        cost.append(unit);
+      } else {
+        cost.textContent = '스테이지 ' + unlockStage(type);
       }
     }
-    /* 보라 = 괴수 굴, 파랑 = 성문 */
-    for (const w of map.paths) dot((w[0][0] + 0.5) * s, (w[0][1] + 0.5) * s, s * 0.5, ART.purple[1]);
-    const end = map.paths[0][map.paths[0].length - 1];
-    dot((end[0] + 0.5) * s, (end[1] + 0.5) * s, s * 0.55, ART.blue[0]);
-  }
-
-  function bestText(mapId) {
-    const b = app.best[mapId + ':' + app.settings.diff];
-    if (!b || !b.wave) return '기록 없음';
-    return b.won ? (b.wave > FINAL_WAVE ? '지켜냄 · ' + b.wave + '웨이브' : '지켜냄') : '최고 ' + b.wave + '웨이브';
-  }
-
-  function buildMenu() {
-    for (const map of MAPS) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'map-btn';
-      b.setAttribute('role', 'radio');
-      b.dataset.map = map.id;
-      const cv = document.createElement('canvas');
-      cv.width = 240;
-      cv.height = 150;
-      drawThumb(cv, map);
-      const name = document.createElement('strong');
-      name.textContent = map.name;
-      const best = document.createElement('span');
-      b.append(cv, name, best);
-      b.addEventListener('click', () => {
-        Sfx.play('click');
-        app.settings.map = map.id;
-        saveSettings();
-        refreshMenu();
-        if (app.demo) startDemo();
-      });
-      el.maps.append(b);
-    }
-    for (const id of Object.keys(DIFFICULTY)) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.setAttribute('role', 'radio');
-      b.dataset.diff = id;
-      b.textContent = DIFFICULTY[id].name;
-      b.addEventListener('click', () => {
-        Sfx.play('click');
-        app.settings.diff = id;
-        saveSettings();
-        refreshMenu();
-      });
-      el.diffs.append(b);
-    }
-  }
-
-  function inRun() {
-    return !app.demo && (app.game.phase === 'build' || app.game.phase === 'wave');
-  }
-
-  function refreshMenu() {
-    for (const b of el.maps.children) {
-      b.setAttribute('aria-checked', String(b.dataset.map === app.settings.map));
-      b.lastChild.textContent = bestText(b.dataset.map);
-    }
-    for (const b of el.diffs.children) b.setAttribute('aria-checked', String(b.dataset.diff === app.settings.diff));
-    const map = MAPS.find((m) => m.id === app.settings.map);
-    const d = DIFFICULTY[app.settings.diff];
-    el.mapNote.textContent = map.note + ' 골드 ' + d.gold + ', 목숨 ' + d.lives + '개로 시작합니다.';
-    el.resume.hidden = !inRun();
-    const s = app.save;
-    const savedMap = s && MAPS.find((m) => m.id === s.map);
-    el.cont.hidden = inRun() || !savedMap;
-    if (savedMap) el.cont.textContent = '이어하기 · ' + savedMap.name + ' ' + (s.wave + 1) + '웨이브';
-    el.fresh.textContent = app.confirmUntil > app.time ? '지금 판을 버리고 시작' : '새 게임';
-    setSoundLabel();
-  }
-
-  function openMenu() {
-    app.menuOpen = true;
-    app.confirmUntil = 0;
-    setPlacing(null);
-    refreshMenu();
-    el.menu.hidden = false;
-  }
-
-  function closeMenu() {
-    app.menuOpen = false;
-    el.menu.hidden = true;
-  }
-
-  /* ───── 게임 시작·저장 ───── */
-
-  function persist(data) {
-    app.save = data;
-    if (data) store.set(KEY.save, data);
-    else store.del(KEY.save);
-  }
-
-  function record(game, wave, won) {
-    const key = game.map.id + ':' + game.diffId;
-    const cur = app.best[key] || { wave: 0, won: false };
-    if (wave > cur.wave || (won && !cur.won)) {
-      app.best[key] = { wave: Math.max(wave, cur.wave), won: won || cur.won };
-      store.set(KEY.best, app.best);
-    }
-  }
-
-  function setGame(game, demo) {
-    app.game = game;
-    app.demo = demo;
-    app.acc = 0;
-    app.autoWait = 0;
-    app.demoWait = 0;
-    app.resultAt = 0;
-    app.selected = null;
-    app.placing = null;
-    app.seen = {};
-    app.renderer.setGame(game);
-    game.listener = (type, d) => {
-      app.renderer.onEvent(type, d);
-      if (app.demo) return;
-      Sfx.onEvent(type, d);
-      switch (type) {
-        case 'wavestart':
-          persist(game.snapshot);
-          break;
-        case 'waveclear':
-          record(game, d.wave, false);
-          if (game.phase === 'build') persist(game.serialize());
-          break;
-        case 'won':
-          record(game, FINAL_WAVE, true);
-          persist(null);
-          app.resultAt = app.time + 1.4;
-          break;
-        case 'lost':
-          record(game, game.wave - 1, false);
-          persist(null);
-          app.resultAt = app.time + 1.4;
-          break;
-      }
-    };
-    refreshPanels();
-  }
-
-  function newGame() {
-    const game = new Game({ map: app.settings.map, diff: app.settings.diff, seed: (Math.random() * 2 ** 31) | 0 });
-    setGame(game, false);
-    app.paused = false;
-    el.result.hidden = true;
-    closeMenu();
-    toast('탑을 골라 길가 빈 땅에 세운 뒤 시작을 누르세요.', 5000);
-  }
-
-  function loadGame(save) {
-    const game = Game.fromSave(save);
-    if (!game) {
-      persist(null);
-      refreshMenu();
-      return false;
-    }
-    app.settings.map = game.map.id;
-    app.settings.diff = game.diffId;
-    setGame(game, false);
-    app.paused = false;
-    el.result.hidden = true;
-    closeMenu();
-    return true;
-  }
-
-  /* 시작 화면 뒤에서 저절로 돌아가는 시연 */
-  function startDemo() {
-    const game = new Game({ map: app.settings.map, diff: 'normal', seed: (Math.random() * 2 ** 31) | 0 });
-    const plan = [['crossbow', 1], ['cannon', 1], ['frost', 0], ['tesla', 1], ['crossbow', 2], ['rocket', 0], ['cannon', 2], ['frost', 1], ['tesla', 0], ['rocket', 1]];
-    for (const [type, level] of plan) {
-      const range = TOWERS[type].levels[0].range;
-      const spots = [];
-      for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-          if (game.canBuild(x, y)) spots.push({ x, y, score: game.coverage(x + 0.5, y + 0.5, range) });
-        }
-      }
-      spots.sort((a, b) => b.score - a.score);
-      const pick = spots[(Math.random() * Math.min(14, spots.length)) | 0];
-      if (!pick) break;
-      const t = game.addTower(type, pick.x, pick.y);
-      t.level = level;
-      t.lv = t.def.levels[level];
-      t.fresh = false;
-    }
-    game.wave = 4 + ((Math.random() * 5) | 0);
-    game.gold = 180;
-    setGame(game, true);
   }
 
   /* ───── 선택·건설 ───── */
 
   function setPlacing(type) {
+    const g = app.game;
+    if (type && (!g || !g.allowed.includes(type))) return;
     app.placing = type;
     if (type) app.selected = null;
     refreshPanels();
@@ -408,7 +758,7 @@
 
   function tap(tile, keep) {
     const g = app.game;
-    if (app.demo || !g.inBounds(tile.x, tile.y)) return;
+    if (!g || !g.inBounds(tile.x, tile.y)) return;
     if (!app.placing) {
       select(g.towerAt(tile.x, tile.y));
       return;
@@ -430,8 +780,9 @@
   }
 
   function startWave() {
-    if (app.demo) return;
-    if (app.game.startWave()) {
+    const g = app.game;
+    if (!g) return;
+    if (g.startWave()) {
       app.autoWait = 0;
       if (app.paused) togglePause();
     }
@@ -452,9 +803,10 @@
 
   function setSoundLabel() {
     const on = app.settings.sound;
-    el.sound.setAttribute('aria-pressed', String(on));
-    el.sound2.setAttribute('aria-pressed', String(on));
-    el.sound2.textContent = on ? '소리 켜짐' : '소리 꺼짐';
+    for (const b of document.querySelectorAll('.sound-toggle')) {
+      b.setAttribute('aria-pressed', String(on));
+      if (!b.classList.contains('icon-btn')) b.textContent = on ? '소리 켜짐' : '소리 꺼짐';
+    }
   }
 
   function toggleSound() {
@@ -467,7 +819,7 @@
 
   function upgradeSelected() {
     const t = app.selected;
-    if (!t) return;
+    if (!t || !app.game) return;
     const cost = app.game.upgradeCost(t);
     if (cost == null) return;
     if (!app.game.upgrade(t)) deny('골드가 ' + (cost - app.game.gold) + ' 모자랍니다.');
@@ -476,7 +828,7 @@
 
   function sellSelected() {
     const t = app.selected;
-    if (!t) return;
+    if (!t || !app.game) return;
     app.game.sell(t);
     select(null);
   }
@@ -490,36 +842,13 @@
     refreshPanels();
   }
 
-  /* ───── 화면 갱신 ───── */
+  /* ───── 게임 화면 갱신 ───── */
 
   function setText(node, key, value) {
     if (app.seen[key] === value) return false;
     app.seen[key] = value;
     node.textContent = value;
     return true;
-  }
-
-  function buildChips(wave) {
-    el.chips.textContent = '';
-    for (const { type, count } of wavePreview(wave)) {
-      const def = ENEMIES[type];
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'chip';
-      chip.title = def.name + ' — ' + def.trait;
-      chip.setAttribute('aria-label', def.name + ' ' + count + '마리');
-      const cv = document.createElement('canvas');
-      cv.width = 64;
-      cv.height = 64;
-      const c = cv.getContext('2d');
-      c.translate(31, 40);
-      const s = 14.5 / def.r;
-      c.scale(s, s);
-      drawEnemySprite(c, type, def.r, 0.3, { seed: 1 });
-      chip.append(cv, '×' + count);
-      chip.addEventListener('click', () => toast(def.name + ' — ' + def.trait, 4200));
-      el.chips.append(chip);
-    }
   }
 
   function refreshPanels() {
@@ -558,11 +887,11 @@
     const g = app.game;
     setText(el.lives, 'lives', String(g.lives));
     if (setText(el.gold, 'gold', String(g.gold))) {
-      for (const type of TOWER_ORDER) app.cards[type].classList.toggle('poor', g.gold < TOWERS[type].levels[0].cost);
+      for (const type of TOWER_ORDER) app.cards[type].classList.toggle('poor', g.allowed.includes(type) && g.gold < TOWERS[type].levels[0].cost);
       if (app.selected) refreshPanels();
     }
     setText(el.wave, 'wave', String(g.wave));
-    setText(el.of, 'of', g.endless ? '' : '/' + FINAL_WAVE);
+    setText(el.of, 'of', g.endless ? '' : '/' + g.finalWave);
     el.statLives.classList.toggle('low', g.lives <= 5);
 
     const waving = g.phase === 'wave';
@@ -574,7 +903,8 @@
       const key = 'chips' + (g.wave + 1);
       if (app.seen.chips !== key) {
         app.seen.chips = key;
-        buildChips(g.wave + 1);
+        el.chips.textContent = '';
+        for (const { type, count } of g.preview(g.wave + 1)) el.chips.append(enemyChip(type, '×' + count, (text) => toast(text, 4200)));
       }
     }
     const mode = waving ? 'wave' : g.phase;
@@ -587,18 +917,60 @@
     }
   }
 
+  /* ───── 일시정지 메뉴·결과 ───── */
+
+  function openPause() {
+    const g = app.game;
+    if (!g) return;
+    app.menuOpen = true;
+    app.confirmUntil = 0;
+    setPlacing(null);
+    el.pauseEyebrow.textContent = g.stage ? '스테이지 ' + g.stage.id + ' · ' + g.stage.name : '도전 모드 · ' + g.map.name;
+    el.restart.textContent = '처음부터 다시';
+    setSoundLabel();
+    el.pauseSheet.hidden = false;
+  }
+
+  function closePause() {
+    app.menuOpen = false;
+    el.pauseSheet.hidden = true;
+  }
+
   function showResult() {
     const g = app.game;
+    if (!g) return;
     const won = g.phase === 'won';
-    el.resEyebrow.textContent = won ? '승리' : '패배';
-    el.resTitle.textContent = won ? '성을 지켜냈습니다' : '성문이 뚫렸습니다';
-    el.resText.textContent = won
-      ? g.map.name + '의 서른 웨이브를 모두 막아냈습니다. 무한 모드로 이어 가면 괴수가 끝없이 거세집니다.'
-      : g.wave + '번째 웨이브에서 괴수 떼가 성문을 넘었습니다. 다음 웨이브에 누가 오는지 보고 탑을 섞어 보세요.';
+    const st = g.stage;
+    const last = st && st.id === STAGES[STAGES.length - 1].id;
+    el.resStars.hidden = !(st && won);
+    if (st && won) {
+      const n = g.stars();
+      [...el.resStars.children].forEach((s, i) => s.classList.toggle('on', i < n));
+    }
+    if (st) {
+      el.resEyebrow.textContent = '스테이지 ' + st.id + ' · ' + st.name;
+      el.resTitle.textContent = won ? '성문을 지켜냈습니다' : '성문이 뚫렸습니다';
+      el.resText.textContent = won
+        ? last
+          ? '열두 전장을 모두 지켜냈습니다. 별 셋을 다 모으거나 도전 모드에서 더 버텨 보세요.'
+          : g.stars() === 3
+            ? '거의 놓치지 않고 막아냈습니다. 다음 스테이지가 열렸습니다.'
+            : '다음 스테이지가 열렸습니다. 목숨을 ' + (g.maxLives - 2) + '개 이상 지키면 별 셋입니다.'
+        : g.wave + '번째 웨이브에서 괴수 떼가 성문을 넘었습니다. 다음 웨이브에 누가 오는지 보고 탑을 섞어 보세요.';
+    } else {
+      el.resEyebrow.textContent = '도전 모드 · ' + g.map.name;
+      el.resTitle.textContent = won ? '성을 지켜냈습니다' : '성문이 뚫렸습니다';
+      el.resText.textContent = won
+        ? '서른 웨이브를 모두 막아냈습니다. 무한 모드로 이어 가면 괴수가 끝없이 거세집니다.'
+        : g.wave + '번째 웨이브에서 괴수 떼가 성문을 넘었습니다.';
+    }
     el.tallyWave.textContent = String(won ? g.wave : g.wave - 1);
     el.tallyKills.textContent = String(g.stats.kills);
     el.tallyLives.textContent = String(g.lives);
-    el.endless.hidden = !won;
+    el.home.textContent = st ? '스테이지 선택' : '로비로';
+    el.endless.hidden = !(won && !st);
+    el.next.hidden = !(won && st && !last);
+    el.retry.classList.toggle('primary', !won);
     setPlacing(null);
     select(null);
     el.result.hidden = false;
@@ -633,42 +1005,60 @@
       else select(null);
     });
 
+    const click = (node, fn) => node.addEventListener('click', () => { Sfx.play('click'); fn(); });
+
+    /* 게임 화면 */
     el.start.addEventListener('click', startWave);
-    el.speed.addEventListener('click', () => { Sfx.play('click'); setSpeed((app.settings.speed % 3) + 1); });
-    el.pause.addEventListener('click', () => { Sfx.play('click'); togglePause(); });
-    el.sound.addEventListener('click', toggleSound);
-    el.sound2.addEventListener('click', toggleSound);
-    el.menuBtn.addEventListener('click', () => { Sfx.play('click'); openMenu(); });
+    click(el.speed, () => setSpeed((app.settings.speed % 3) + 1));
+    click(el.pause, togglePause);
+    click(el.menuBtn, openPause);
     el.auto.addEventListener('change', () => { app.settings.auto = el.auto.checked; app.autoWait = 0; saveSettings(); });
     el.cancel.addEventListener('click', () => setPlacing(null));
     el.close.addEventListener('click', () => select(null));
     el.upgrade.addEventListener('click', upgradeSelected);
     el.sell.addEventListener('click', sellSelected);
     el.target.addEventListener('click', cycleTarget);
+    for (const node of document.querySelectorAll('.sound-toggle')) node.addEventListener('click', toggleSound);
 
-    el.resume.addEventListener('click', closeMenu);
-    el.cont.addEventListener('click', () => { Sfx.play('click'); loadGame(app.save); });
-    el.fresh.addEventListener('click', () => {
-      if (inRun() && (app.game.wave > 0 || app.game.towers.length) && app.confirmUntil <= app.time) {
+    /* 로비와 그 아래 화면들 */
+    click(el.play, () => { app.pick = frontier(); show('stages'); });
+    click(el.cont, () => { if (!loadGame(app.save)) refreshLobby(); });
+    click(el.challengeBtn, () => show('challenge'));
+    click(el.codexBtn, () => show('codex'));
+    click(el.stagesBack, () => show('lobby'));
+    click(el.challengeBack, () => show('lobby'));
+    click(el.codexBack, () => show('lobby'));
+    click(el.stageStart, () => startStage(app.pick));
+    click(el.challengeStart, () => startChallenge());
+
+    /* 일시정지 메뉴 */
+    click(el.resume, closePause);
+    el.restart.addEventListener('click', () => {
+      if (app.confirmUntil <= app.time) {
         app.confirmUntil = app.time + 4;
-        refreshMenu();
+        el.restart.textContent = '한 번 더 누르면 처음부터';
         return;
       }
       Sfx.play('click');
-      newGame();
+      restart();
     });
-    el.retry.addEventListener('click', () => {
-      app.settings.map = app.game.map.id;
-      app.settings.diff = app.game.diffId;
-      newGame();
+    click(el.quit, quit);
+
+    /* 결과 */
+    click(el.retry, restart);
+    click(el.home, () => {
+      const g = app.game;
+      app.game = null;
+      if (g && g.stage) {
+        app.pick = g.phase === 'won' && unlocked(g.stage.id + 1) && g.stage.id < STAGES.length ? g.stage.id + 1 : g.stage.id;
+        show('stages');
+      } else {
+        show('lobby');
+      }
     });
-    el.home.addEventListener('click', () => {
-      el.result.hidden = true;
-      startDemo();
-      openMenu();
-    });
-    el.endless.addEventListener('click', () => {
-      if (app.game.continueEndless()) {
+    click(el.next, () => { if (app.game && app.game.stage) startStage(app.game.stage.id + 1); });
+    click(el.endless, () => {
+      if (app.game && app.game.continueEndless()) {
         el.result.hidden = true;
         persist(app.game.serialize());
         toast('무한 모드입니다. 버틸 수 있는 데까지 버텨 보세요.', 4000);
@@ -679,11 +1069,16 @@
     document.addEventListener('keydown', (e) => {
       Sfx.unlock();
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (!el.result.hidden) return;
-      if (app.menuOpen) {
-        if (e.code === 'Escape' && inRun()) closeMenu();
+      if (app.screen !== 'game') {
+        if (e.code === 'Escape' && app.screen !== 'lobby') show('lobby');
         return;
       }
+      if (!el.result.hidden) return;
+      if (app.menuOpen) {
+        if (e.code === 'Escape') closePause();
+        return;
+      }
+      const g = app.game;
       const onControl = /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
       const digit = /^Digit([1-5])$/.exec(e.code);
       if (digit) {
@@ -695,12 +1090,12 @@
         case 'Escape':
           if (app.placing) setPlacing(null);
           else if (app.selected) select(null);
-          else openMenu();
+          else openPause();
           break;
         case 'Space':
           if (onControl) return;
           e.preventDefault();
-          if (app.game.phase === 'build') startWave();
+          if (g.phase === 'build') startWave();
           else togglePause();
           break;
         case 'KeyP': togglePause(); break;
@@ -728,11 +1123,14 @@
     const dt = Math.min(0.1, Math.max(0, (now - app.last) / 1000) || 0);
     app.last = now;
     app.time += dt;
-    const g = app.game;
-    const running = app.demo || (!app.paused && !app.menuOpen);
 
+    if (app.screen === 'lobby') drawHero(app.time);
+    const g = app.game;
+    if (!g || app.screen !== 'game') return;
+
+    const running = !app.paused && !app.menuOpen && el.result.hidden;
     if (running) {
-      app.acc += dt * (app.demo ? 1 : app.settings.speed);
+      app.acc += dt * app.settings.speed;
       let steps = 0;
       while (app.acc >= STEP && steps++ < 24) {
         g.update(STEP);
@@ -740,14 +1138,7 @@
       }
       if (app.acc >= STEP) app.acc = 0;
 
-      if (app.demo) {
-        if (g.phase === 'build') {
-          app.demoWait += dt;
-          if (app.demoWait > 1.2) { app.demoWait = 0; g.startWave(); }
-        } else if (g.phase !== 'wave' || g.wave > 16) {
-          startDemo();
-        }
-      } else if (app.settings.auto && g.phase === 'build' && g.wave > 0) {
+      if (app.settings.auto && g.phase === 'build' && g.wave > 0) {
         app.autoWait += dt;
         if (app.autoWait >= 2) startWave();
       } else {
@@ -761,39 +1152,40 @@
     }
     if (app.confirmUntil && app.time >= app.confirmUntil) {
       app.confirmUntil = 0;
-      if (app.menuOpen) refreshMenu();
+      el.restart.textContent = '처음부터 다시';
     }
-    if (app.selected && !app.game.towers.includes(app.selected)) select(null);
+    if (app.selected && !g.towers.includes(app.selected)) select(null);
 
     refresh();
     app.renderer.draw({
       time: app.time,
       dt: running ? dt : 0,
-      placing: app.demo ? null : app.placing,
+      placing: app.placing,
       hover: app.hover,
-      selected: app.demo ? null : app.selected,
-      paused: app.paused && !app.menuOpen && !app.demo,
+      selected: app.selected,
+      paused: app.paused && !app.menuOpen,
     });
   }
 
   /* 열어 둔 채로 새 판이 배포되어도 하던 판을 잃지 않도록 상태를 넘겨준다. */
   function hotState() {
-    if (!inRun()) return {};
-    return { save: app.game.phase === 'build' ? app.game.serialize() : app.game.snapshot };
+    const g = app.game;
+    if (!g || (g.phase !== 'build' && g.phase !== 'wave')) return {};
+    return { save: g.phase === 'build' ? g.serialize() : g.snapshot };
   }
 
   function start(data) {
     buildShop();
-    buildMenu();
+    buildStageGrid();
+    buildChallenge();
+    buildCodex();
     bindInput();
     Sfx.enabled = app.settings.sound;
     el.auto.checked = !!app.settings.auto;
     setSpeed(app.settings.speed);
 
-    startDemo();
-    if (!(data && data.save && loadGame(data.save))) openMenu();
+    if (!(data && data.save && loadGame(data.save))) show('lobby');
 
-    layout();
     if (typeof ResizeObserver === 'function') new ResizeObserver(layout).observe(el.stage);
     window.addEventListener('resize', layout);
     requestAnimationFrame((now) => {
