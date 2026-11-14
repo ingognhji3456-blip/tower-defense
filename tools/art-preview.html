@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>그림 미리보기</title>
+<style>
+  html, body { margin: 0; background: #20242c; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="sheet"></canvas>
+<canvas id="game"></canvas>
+<script src="../js/data.js"></script>
+<script src="../js/art/common.js"></script>
+<script>
+'use strict';
+/* tools/art-preview.js 가 여는 그림 점검판. ?kind=tower|enemy|terrain|all&id=… */
+
+const ART_FILES = [
+  'tower-crossbow', 'tower-cannon', 'tower-frost', 'tower-rocket', 'tower-tesla',
+  'enemy-ant', 'enemy-wolf', 'enemy-beetle', 'enemy-hornet', 'enemy-scorpion', 'enemy-raptor', 'enemy-dragon',
+  'terrain',
+];
+
+/* 단계별로 가장 높이 솟아도 되는 한계 (타일 중심 기준 위쪽 거리) */
+const TOWER_MAX_H = [1.2, 1.45, 1.75];
+const TOWER_BOX = { x: 0.8, top: 1.8, bottom: 0.55 };
+
+const q = new URLSearchParams(location.search);
+const report = { errors: [], lines: [] };
+window.__report = report;
+window.addEventListener('error', (e) => report.errors.push(e.message + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno));
+
+function loadAll(done) {
+  let i = 0;
+  const next = () => {
+    if (i >= ART_FILES.length) return done();
+    const s = document.createElement('script');
+    s.src = '../js/art/' + ART_FILES[i++] + '.js';
+    s.onload = next;
+    s.onerror = next;
+    document.body.append(s);
+  };
+  next();
+}
+
+function safely(label, fn) {
+  try { fn(); } catch (err) { report.errors.push(label + ': ' + err.message); }
+}
+
+/* 투명한 판에 그려서 실제로 칠해진 범위를 타일 단위로 잰다. */
+function measure(draw, half, up, down) {
+  const S = 160;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(half * 2 * S);
+  c.height = Math.ceil((up + down) * S);
+  const g = c.getContext('2d');
+  g.translate(half * S, up * S);
+  g.scale(S, S);
+  let failed = false;
+  safely('measure', () => draw(g));
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, x1 = -1, y0 = c.height, y1 = -1;
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      if (d[(y * c.width + x) * 4 + 3] > 24) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return null;
+  const f = (v) => Math.round(v * 100) / 100;
+  return { left: f(x0 / S - half), right: f((x1 + 1) / S - half), top: f(y0 / S - up), bottom: f((y1 + 1) / S - up), clipped: x0 === 0 || y0 === 0 || x1 === c.width - 1 || y1 === c.height - 1 };
+}
+
+function timeIt(draw) {
+  const c = document.createElement('canvas');
+  c.width = 160;
+  c.height = 280;
+  const g = c.getContext('2d');
+  g.translate(80, 210);
+  g.scale(90, 90);
+  const N = 300;
+  const t0 = performance.now();
+  try { for (let i = 0; i < N; i++) draw(g, i); } catch (err) { return -1; }
+  return Math.round(((performance.now() - t0) / N) * 1000) / 1000;
+}
+
+function at(g, x, y, s, fn) {
+  g.save();
+  g.translate(x, y);
+  g.scale(s, s);
+  safely('draw', () => fn(g));
+  g.restore();
+}
+
+function label(g, text, x, y, size, color) {
+  g.font = '600 ' + (size || 16) + 'px system-ui, sans-serif';
+  g.fillStyle = color || 'rgba(20,30,20,.8)';
+  g.textAlign = 'center';
+  g.fillText(text, x, y);
+}
+
+function grass(g, w, h, ts) {
+  for (let y = 0; y * ts < h; y++) {
+    for (let x = 0; x * ts < w; x++) {
+      g.fillStyle = ART.grass[(x + y) % 2];
+      g.fillRect(x * ts, y * ts, ts, ts);
+    }
+  }
+}
+
+function pathRow(g, y, w, ts) {
+  g.fillStyle = ART.pathEdge;
+  g.fillRect(0, y + ts * 0.05, w, ts * 0.9);
+  g.fillStyle = ART.path;
+  g.fillRect(0, y + ts * 0.12, w, ts * 0.76);
+}
+
+/* 적이 아직 없을 때 쓰는 자리 표시 */
+function standIn(g, r) {
+  g.fillStyle = '#c0504a';
+  g.beginPath();
+  g.arc(0, 0, r, 0, Math.PI * 2);
+  g.fill();
+}
+
+function anyEnemy(g, type, r, t, seed, flip) {
+  if (ENEMY_ART[type]) drawEnemySprite(g, type, r, t, { seed, flip });
+  else standIn(g, r);
+}
+
+/* ───────── 타워 ───────── */
+
+function towerSheet(type) {
+  const cv = document.getElementById('sheet');
+  const W = 1500;
+  cv.width = W;
+  cv.height = 1150;
+  const g = cv.getContext('2d');
+  g.fillStyle = ART.grass[0];
+  g.fillRect(0, 0, W, cv.height);
+  const def = TOWERS[type];
+
+  /* 윗줄: 규격선과 함께 크게 */
+  const S = 270;
+  for (let lv = 0; lv < 3; lv++) {
+    const cx = 250 + lv * 500;
+    const cy = 540;
+    const h = def.levels[lv].h;
+    g.save();
+    g.translate(cx, cy);
+    g.setLineDash([8, 6]);
+    g.lineWidth = 1.5;
+    g.strokeStyle = 'rgba(255,255,255,.55)';
+    g.strokeRect(-0.5 * S, -0.5 * S, S, S);
+    g.strokeStyle = 'rgba(200,40,40,.7)';
+    g.beginPath();
+    g.moveTo(-0.7 * S, -TOWER_MAX_H[lv] * S);
+    g.lineTo(0.7 * S, -TOWER_MAX_H[lv] * S);
+    g.stroke();
+    g.setLineDash([]);
+    g.restore();
+    label(g, def.name + ' ' + (lv + 1) + '단  (빨간 점선 = 높이 한계, 분홍 십자 = 무기 회전축 h=' + h + ')', cx, 30, 15);
+    at(g, cx, cy, S, (c) => drawTowerSprite(c, type, lv, 0.45, { t: 0.4 }));
+    g.strokeStyle = '#ff2fd0';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(cx - 12, cy - h * S);
+    g.lineTo(cx + 12, cy - h * S);
+    g.moveTo(cx, cy - h * S - 12);
+    g.lineTo(cx, cy - h * S + 12);
+    g.stroke();
+  }
+
+  /* 아랫줄: 여러 조준 각도와 발사 순간 */
+  const S2 = 150;
+  const poses = [
+    { aim: -2.5, o: { t: 1.1 }, note: '왼쪽 위 조준' },
+    { aim: 1.3, o: { t: 2.0, recoil: 0.9, flash: 1 }, note: '아래 조준 · 발사 직후' },
+    { aim: -0.6, o: { t: 3.3, recoil: 0.4, flash: 0.4 }, note: '오른쪽 위 조준' },
+    { aim: 3.14, o: { t: 4.1 }, note: '왼쪽 조준' },
+  ];
+  for (let lv = 0; lv < 3; lv++) {
+    for (let p = 0; p < 2; p++) {
+      const pose = poses[(lv + p * 2) % poses.length];
+      const cx = 130 + (lv * 2 + p) * 248;
+      at(g, cx, 1040, S2, (c) => drawTowerSprite(c, type, lv, pose.aim, Object.assign({}, pose.o)));
+      label(g, (lv + 1) + '단 · ' + pose.note, cx, 1138, 13);
+    }
+  }
+
+  for (let lv = 0; lv < 3; lv++) {
+    const all = measure((c) => drawTowerSprite(c, type, lv, 0.45, { t: 0.4 }), 1.2, 2.1, 0.9);
+    const fixed = measure((c) => { TOWER_ART[type].body(c, lv); if (TOWER_ART[type].front) TOWER_ART[type].front(c, lv); }, 1.2, 2.1, 0.9);
+    const msBody = timeIt((c) => TOWER_ART[type].body(c, lv));
+    const msTop = timeIt((c, i) => TOWER_ART[type].top(c, lv, i * 0.1, { recoil: 0.5, flash: 0.5, t: i * 0.016 }));
+    const warn = [];
+    if (all) {
+      if (-all.top > TOWER_MAX_H[lv] + 0.005) warn.push('너무 높음(한계 ' + TOWER_MAX_H[lv] + ')');
+      if (all.bottom > 0.5) warn.push('바닥이 타일 밖으로 내려감(한계 0.5)');
+      if (all.bottom < 0.3) warn.push('바닥이 떠 있음(0.36~0.46 권장)');
+    }
+    if (fixed && (fixed.left < -TOWER_BOX.x || fixed.right > TOWER_BOX.x || -fixed.top > TOWER_BOX.top || fixed.bottom > TOWER_BOX.bottom)) warn.push('body/front 가 저장 범위(x ±0.8, 위 1.8, 아래 0.55)를 벗어남');
+    if (msTop > 0.12) warn.push('top 이 무거움');
+    report.lines.push((lv + 1) + '단  전체 범위 ' + JSON.stringify(all) + '  고정부 ' + JSON.stringify(fixed) + '  body ' + msBody + 'ms  top ' + msTop + 'ms' + (warn.length ? '  ⚠ ' + warn.join(', ') : '  ✓'));
+  }
+}
+
+function towerGame(type) {
+  const cv = document.getElementById('game');
+  const sizes = [64, 46, 34];
+  cv.width = 760;
+  cv.height = sizes.reduce((a, ts) => a + ts * 3 + 14, 0);
+  const g = cv.getContext('2d');
+  g.fillStyle = '#20242c';
+  g.fillRect(0, 0, cv.width, cv.height);
+  let y = 0;
+  for (const ts of sizes) {
+    g.save();
+    g.beginPath();
+    g.rect(0, y, cv.width, ts * 3);
+    g.clip();
+    g.translate(0, y);
+    grass(g, cv.width, ts * 3, ts);
+    pathRow(g, 0, cv.width, ts);
+    pathRow(g, ts * 2, cv.width, ts);
+    /* 뒤쪽 길을 지나는 적 → 탑 → 앞쪽 길을 지나는 적 순서로 그려 가림을 본다 */
+    const kinds = Object.keys(ENEMIES);
+    for (let i = 0; i < 9; i++) at(g, (i + 0.6) * ts * 1.25, ts * 0.5, ts, (c) => anyEnemy(c, kinds[i % 4], ENEMIES[kinds[i % 4]].r, i * 0.3, i, false));
+    for (let lv = 0; lv < 3; lv++) {
+      for (let k = 0; k < 2; k++) {
+        const tx = 1 + lv * 3.4 + k;
+        at(g, (tx + 0.5) * ts, ts * 1.5, ts, (c) => drawTowerSprite(c, type, lv, k ? 2.2 : -0.7, { t: lv + k, recoil: k ? 0.7 : 0, flash: k ? 0.7 : 0 }));
+      }
+    }
+    for (let i = 0; i < 4; i++) at(g, (i * 2.6 + 1.2) * ts, ts * 2.5, ts, (c) => anyEnemy(c, kinds[i % 4], ENEMIES[kinds[i % 4]].r, i * 0.5, i + 3, true));
+    g.restore();
+    label(g, '타일 ' + ts + 'px', cv.width - 50, y + 16, 12, 'rgba(20,30,20,.7)');
+    y += ts * 3 + 14;
+  }
+}
+
+/* ───────── 적 ───────── */
+
+function enemySheet(type) {
+  const def = ENEMIES[type];
+  const cv = document.getElementById('sheet');
+  const W = 1500;
+  cv.width = W;
+  cv.height = 880;
+  const g = cv.getContext('2d');
+  g.fillStyle = ART.path;
+  g.fillRect(0, 0, W, cv.height);
+  const R = def.boss ? 96 : 104; /* 몸 크기 r 이 화면에서 이만큼 */
+  const S = R / def.r;
+  const frames = [0, 0.11, 0.22, 0.33];
+  frames.forEach((t, i) => {
+    const cx = 190 + i * 372;
+    const cy = 250;
+    g.save();
+    g.translate(cx, cy);
+    g.setLineDash([8, 6]);
+    g.lineWidth = 1.5;
+    g.strokeStyle = 'rgba(40,40,40,.4)';
+    g.strokeRect(-1.9 * R, -2.1 * R, 3.8 * R, 3.25 * R);
+    g.strokeStyle = 'rgba(200,40,40,.6)';
+    g.beginPath();
+    g.moveTo(-1.9 * R, R);
+    g.lineTo(1.9 * R, R);
+    g.stroke();
+    g.setLineDash([]);
+    g.strokeStyle = 'rgba(40,40,40,.35)';
+    g.beginPath();
+    g.arc(0, 0, R, 0, Math.PI * 2);
+    g.stroke();
+    g.restore();
+    at(g, cx, cy, S, (c) => drawEnemySprite(c, type, def.r, t, { seed: 2 }));
+    label(g, 't = ' + t + '초', cx, 30, 15, 'rgba(40,30,20,.8)');
+  });
+  label(g, def.name + '  r=' + def.r + '  (회색 원 = 몸 크기 r, 빨간 점선 = 발이 닿는 땅, 사각 점선 = 그림 범위 한계)', W / 2, 395, 15, 'rgba(40,30,20,.8)');
+
+  /* 아랫줄: 왼쪽을 볼 때, 다른 seed, 꼬리 */
+  const S2 = (R * 0.8) / def.r;
+  at(g, 200, 650, S2, (c) => drawEnemySprite(c, type, def.r, 0.5, { seed: 5, flip: true }));
+  label(g, '왼쪽으로 갈 때 (렌더러가 뒤집음)', 200, 860, 13, 'rgba(40,30,20,.8)');
+  at(g, 560, 650, S2, (c) => drawEnemySprite(c, type, def.r, 0.7, { seed: 9 }));
+  label(g, 'seed 9', 560, 860, 13, 'rgba(40,30,20,.8)');
+  if (def.tail && ENEMY_ART[type] && ENEMY_ART[type].segment) {
+    const n = def.tail.n;
+    for (let i = n; i >= 1; i--) {
+      const x = 1330 - i * def.tail.gap * S2;
+      const y = 650 + Math.sin(i * 0.7) * 26;
+      at(g, x, y, S2, (c) => ENEMY_ART[type].segment(c, def.r, i, n, 0.5));
+    }
+    at(g, 1330, 650, S2, (c) => drawEnemySprite(c, type, def.r, 0.5, { seed: 1 }));
+    label(g, '꼬리 마디 ' + n + '개가 길을 따라 뒤따름 (마디 간격 ' + def.tail.gap + ')', 1100, 860, 13, 'rgba(40,30,20,.8)');
+  } else {
+    at(g, 940, 650, S2, (c) => drawEnemySprite(c, type, def.r, 0.9, { seed: 14 }));
+    at(g, 1300, 650, S2, (c) => drawEnemySprite(c, type, def.r, 1.3, { seed: 23, flip: true }));
+  }
+
+  const box = measure((c) => drawEnemySprite(c, type, def.r, 0.2, { seed: 2 }), def.r * 3.2, def.r * 3.2, def.r * 2.4);
+  const ms = timeIt((c, i) => drawEnemySprite(c, type, def.r, i * 0.016, { seed: i }));
+  const warn = [];
+  if (box) {
+    const f = (v) => Math.round((v / def.r) * 100) / 100;
+    box.inR = { left: f(box.left), right: f(box.right), top: f(box.top), bottom: f(box.bottom) };
+    if (box.inR.left < -1.92 || box.inR.right > 1.92) warn.push('가로 범위 초과(±1.9r)');
+    if (box.inR.top < -2.12) warn.push('위쪽 범위 초과(-2.1r)');
+    if (box.inR.bottom > 1.28) warn.push('아래쪽 범위 초과(+1.25r)');
+    if (box.inR.right - box.inR.left < 1.9) warn.push('너무 작음: 가로 2r 이상으로 채우기');
+  }
+  if (ms > 0.2) warn.push('그리기가 무거움(0.2ms 이하 권장)');
+  report.lines.push('범위(r 단위) ' + JSON.stringify(box && box.inR) + '  한 번 그리는 데 ' + ms + 'ms' + (warn.length ? '  ⚠ ' + warn.join(', ') : '  ✓'));
+}
+
+function enemyGame(type) {
+  const def = ENEMIES[type];
+  const cv = document.getElementById('game');
+  const sizes = [64, 46, 34];
+  cv.width = 760;
+  cv.height = sizes.reduce((a, ts) => a + ts * 2 + 14, 0);
+  const g = cv.getContext('2d');
+  g.fillStyle = '#20242c';
+  g.fillRect(0, 0, cv.width, cv.height);
+  let y = 0;
+  for (const ts of sizes) {
+    g.save();
+    g.beginPath();
+    g.rect(0, y, cv.width, ts * 2);
+    g.clip();
+    g.translate(0, y);
+    grass(g, cv.width, ts * 2, ts);
+    pathRow(g, ts * 0.5, cv.width, ts);
+    const n = def.boss ? 3 : 7;
+    for (let i = 0; i < n; i++) {
+      const x = ((i + 0.7) * cv.width) / (n + 0.4);
+      const off = def.boss ? 0 : Math.sin(i * 2.3) * 0.16 * ts;
+      const flip = i >= n - 2;
+      if (def.tail && ENEMY_ART[type] && ENEMY_ART[type].segment) {
+        for (let k = def.tail.n; k >= 1; k--) at(g, x + (flip ? 1 : -1) * k * def.tail.gap * ts, ts + off, ts, (c) => ENEMY_ART[type].segment(c, def.r, k, def.tail.n, i));
+      }
+      at(g, x, ts + off, ts, (c) => drawEnemySprite(c, type, def.r, i * 0.37, { seed: i, flip }));
+    }
+    g.restore();
+    label(g, '타일 ' + ts + 'px', cv.width - 50, y + 14, 12, 'rgba(20,30,20,.7)');
+    y += ts * 2 + 14;
+  }
+}
+
+/* ───────── 지형 ───────── */
+
+function terrainSheet() {
+  const cv = document.getElementById('sheet');
+  const W = 1500;
+  cv.width = W;
+  cv.height = 900;
+  const g = cv.getContext('2d');
+  g.fillStyle = ART.grass[0];
+  g.fillRect(0, 0, W, cv.height);
+  const S = 210;
+  const kinds = ['tree', 'pine', 'rock', 'pond'];
+  kinds.forEach((kind, i) => {
+    for (let s = 0; s < 2; s++) {
+      const cx = 110 + (i * 2 + s) * 183;
+      g.save();
+      g.translate(cx, 300);
+      g.setLineDash([8, 6]);
+      g.strokeStyle = 'rgba(255,255,255,.5)';
+      g.strokeRect(-0.5 * S, -0.5 * S, S, S);
+      g.restore();
+      at(g, cx, 300, S, (c) => { if (TERRAIN_ART.deco[kind]) TERRAIN_ART.deco[kind](c, s * 5 + 1); });
+      label(g, kind + ' · seed ' + (s * 5 + 1), cx, 30, 14);
+    }
+    const box = TERRAIN_ART.deco[kind] ? measure((c) => TERRAIN_ART.deco[kind](c, 1), 1.2, 1.8, 0.9) : null;
+    report.lines.push(kind + ' 범위 ' + JSON.stringify(box) + (box && (box.left < -0.56 || box.right > 0.56 || box.top < -1.05 || box.bottom > 0.5) ? '  ⚠ 범위 초과(x ±0.55, 위 1.05, 아래 0.5)' : '  ✓'));
+  });
+  /* 길 위에 놓이는 굴과 성문 */
+  g.fillStyle = ART.pathEdge;
+  g.fillRect(0, 700 - S * 0.45, W, S * 0.9);
+  g.fillStyle = ART.path;
+  g.fillRect(0, 700 - S * 0.38, W, S * 0.76);
+  const spots = [
+    ['cave t=0', 180, (c) => TERRAIN_ART.cave && TERRAIN_ART.cave(c, 0)],
+    ['cave t=1.3', 500, (c) => TERRAIN_ART.cave && TERRAIN_ART.cave(c, 1.3)],
+    ['gate', 900, (c) => TERRAIN_ART.gate && TERRAIN_ART.gate(c, 0.5, 0)],
+    ['gate alarm=1', 1260, (c) => TERRAIN_ART.gate && TERRAIN_ART.gate(c, 0.8, 1)],
+  ];
+  for (const [name, cx, fn] of spots) {
+    g.save();
+    g.translate(cx, 700);
+    g.setLineDash([8, 6]);
+    g.strokeStyle = 'rgba(255,255,255,.5)';
+    g.strokeRect(-0.5 * S, -0.5 * S, S, S);
+    g.restore();
+    at(g, cx, 700, S, fn);
+    label(g, name, cx, 520, 14);
+  }
+  for (const [name, fn, lim] of [['cave', (c) => TERRAIN_ART.cave(c, 0), [0.62, 0.85, 0.5]], ['gate', (c) => TERRAIN_ART.gate(c, 0, 0), [0.66, 1.2, 0.5]]]) {
+    const box = TERRAIN_ART[name] ? measure(fn, 1.2, 1.8, 0.9) : null;
+    report.lines.push(name + ' 범위 ' + JSON.stringify(box) + (box && (box.left < -lim[0] || box.right > lim[0] || -box.top > lim[1] || box.bottom > lim[2]) ? '  ⚠ 범위 초과(x ±' + lim[0] + ', 위 ' + lim[1] + ', 아래 ' + lim[2] + ')' : '  ✓'));
+  }
+}
+
+function terrainGame() {
+  const cv = document.getElementById('game');
+  const sizes = [64, 46, 34];
+  cv.width = 760;
+  cv.height = sizes.reduce((a, ts) => a + ts * 3 + 14, 0);
+  const g = cv.getContext('2d');
+  g.fillStyle = '#20242c';
+  g.fillRect(0, 0, cv.width, cv.height);
+  let y = 0;
+  for (const ts of sizes) {
+    g.save();
+    g.beginPath();
+    g.rect(0, y, cv.width, ts * 3);
+    g.clip();
+    g.translate(0, y);
+    grass(g, cv.width, ts * 3, ts);
+    g.fillStyle = ART.pathEdge;
+    g.fillRect(ts * 0.5, ts * 1.05, cv.width - ts * 3.5, ts * 0.9);
+    g.fillStyle = ART.path;
+    g.fillRect(ts * 0.5, ts * 1.12, cv.width - ts * 3.5, ts * 0.76);
+    const kinds = ['tree', 'pine', 'rock', 'pond', 'tree', 'rock', 'pine'];
+    kinds.forEach((k, i) => at(g, (i * 1.35 + 1.5) * ts, ts * 0.5, ts, (c) => TERRAIN_ART.deco[k] && TERRAIN_ART.deco[k](c, i * 3)));
+    for (let i = 0; i < 5; i++) at(g, (i * 1.6 + 2.4) * ts, ts * 1.5, ts, (c) => anyEnemy(c, Object.keys(ENEMIES)[i % 4], 0.26, i * 0.3, i, false));
+    at(g, ts * 0.5, ts * 1.5, ts, (c) => TERRAIN_ART.cave && TERRAIN_ART.cave(c, 0.6));
+    at(g, cv.width - ts * 3, ts * 1.5, ts, (c) => TERRAIN_ART.gate && TERRAIN_ART.gate(c, 0.6, 0));
+    kinds.forEach((k, i) => at(g, (i * 1.5 + 0.9) * ts, ts * 2.5, ts, (c) => TERRAIN_ART.deco[k] && TERRAIN_ART.deco[kinds[(i + 2) % kinds.length]](c, i * 7 + 2)));
+    g.restore();
+    y += ts * 3 + 14;
+  }
+}
+
+/* ───────── 모아 보기 ───────── */
+
+function allSheet() {
+  const cv = document.getElementById('sheet');
+  const ts = 100;
+  const W = 1500;
+  cv.width = W;
+  cv.height = 1230;
+  const g = cv.getContext('2d');
+  grass(g, W, cv.height, ts);
+  TOWER_ORDER.forEach((type, i) => {
+    for (let lv = 0; lv < 3; lv++) {
+      const cx = 105 + i * 290 + lv * 92;
+      if (TOWER_ART[type]) at(g, cx, 190, ts * 0.98, (c) => drawTowerSprite(c, type, lv, -0.5 + lv, { t: 1 + lv }));
+    }
+    label(g, TOWERS[type].name + (TOWER_ART[type] ? '' : ' (없음)'), 197 + i * 290, 262, 15);
+  });
+  /* 실제 배치처럼: 길 사이에 탑 */
+  pathRow(g, 300, W, ts);
+  pathRow(g, 500, W, ts);
+  const kinds = Object.keys(ENEMIES);
+  kinds.forEach((type, i) => {
+    const def = ENEMIES[type];
+    const cx = 100 + i * 205;
+    if (def.tail && ENEMY_ART[type] && ENEMY_ART[type].segment) {
+      for (let k = def.tail.n; k >= 1; k--) at(g, cx - k * def.tail.gap * ts, 350, ts, (c) => ENEMY_ART[type].segment(c, def.r, k, def.tail.n, 0.3));
+    }
+    at(g, cx, 350, ts, (c) => anyEnemy(c, type, def.r, 0.3 + i, i, false));
+    label(g, def.name + (ENEMY_ART[type] ? '' : ' (없음)'), cx, 318, 13, 'rgba(60,40,20,.9)');
+  });
+  TOWER_ORDER.forEach((type, i) => {
+    for (let lv = 0; lv < 3; lv++) {
+      if (TOWER_ART[type]) at(g, 60 + (i * 3 + lv) * ts * 0.98, 450, ts, (c) => drawTowerSprite(c, type, lv, 1.2, { t: 2 + i }));
+    }
+  });
+  for (let i = 0; i < 14; i++) {
+    const type = kinds[i % 4];
+    at(g, 60 + i * 104, 550, ts, (c) => anyEnemy(c, type, ENEMIES[type].r, i * 0.21, i, i % 5 === 4));
+  }
+  ['tree', 'pine', 'rock', 'pond', 'tree', 'pine', 'rock'].forEach((k, i) => at(g, 80 + i * 150, 690, ts, (c) => TERRAIN_ART.deco[k] && TERRAIN_ART.deco[k](c, i * 4 + 1)));
+  pathRow(g, 760, W, ts);
+  at(g, 60, 810, ts, (c) => TERRAIN_ART.cave && TERRAIN_ART.cave(c, 0.5));
+  at(g, W - 80, 810, ts, (c) => TERRAIN_ART.gate && TERRAIN_ART.gate(c, 0.5, 0));
+  ['scorpion', 'raptor', 'dragon'].forEach((type, i) => {
+    const def = ENEMIES[type];
+    const cx = 420 + i * 380;
+    if (def.tail && ENEMY_ART[type] && ENEMY_ART[type].segment) {
+      for (let k = def.tail.n; k >= 1; k--) at(g, cx - k * def.tail.gap * ts, 810, ts, (c) => ENEMY_ART[type].segment(c, def.r, k, def.tail.n, 0.3));
+    }
+    at(g, cx, 810, ts, (c) => anyEnemy(c, type, def.r, 0.6, 1, false));
+  });
+  /* 휴대폰 크기(타일 34px)로 본 모습 */
+  g.save();
+  g.translate(0, 900);
+  const s = 34;
+  g.scale(2, 2);
+  grass(g, W / 2, 165, s);
+  pathRow(g, s * 1, W / 2, s);
+  pathRow(g, s * 3, W / 2, s);
+  TOWER_ORDER.forEach((type, i) => {
+    for (let lv = 0; lv < 3; lv++) if (TOWER_ART[type]) at(g, (i * 3.3 + lv + 1) * s, s * 2.5, s, (c) => drawTowerSprite(c, type, lv, 0.8, { t: 1 }));
+  });
+  kinds.forEach((type, i) => at(g, (i * 2.4 + 1.2) * s, s * 1.5, s, (c) => anyEnemy(c, type, ENEMIES[type].r, i * 0.4, i, false)));
+  for (let i = 0; i < 16; i++) at(g, (i * 1.3 + 0.8) * s, s * 3.5, s, (c) => anyEnemy(c, kinds[i % 4], ENEMIES[kinds[i % 4]].r, i * 0.3, i, i % 3 === 2));
+  g.restore();
+  label(g, '↓ 휴대폰에서 보이는 크기 (타일 34px, 2배 확대)', 220, 892, 14);
+  report.lines.push('타워: ' + TOWER_ORDER.map((t) => t + (TOWER_ART[t] ? '✓' : '✗')).join(' ') + '   적: ' + kinds.map((t) => t + (ENEMY_ART[t] ? '✓' : '✗')).join(' '));
+}
+
+loadAll(() => {
+  const kind = q.get('kind');
+  const id = q.get('id');
+  const game = document.getElementById('game');
+  safely('render', () => {
+    if (kind === 'tower') {
+      if (!TOWER_ART[id]) throw new Error('TOWER_ART.' + id + ' 가 등록되지 않았습니다');
+      towerSheet(id);
+      towerGame(id);
+    } else if (kind === 'enemy') {
+      if (!ENEMY_ART[id]) throw new Error('ENEMY_ART.' + id + ' 가 등록되지 않았습니다');
+      enemySheet(id);
+      enemyGame(id);
+    } else if (kind === 'terrain') {
+      terrainSheet();
+      terrainGame();
+    } else {
+      allSheet();
+      game.remove();
+    }
+  });
+  window.__done = true;
+});
+</script>
+</body>
+</html>

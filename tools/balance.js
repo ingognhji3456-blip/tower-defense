@@ -39,10 +39,10 @@ function power(type, level, mix) {
     for (const m of mix) eff += m.weight * Math.max(0.15, (lv.dmg - m.armor) / lv.dmg) * m.phys;
   }
   switch (type) {
-    case 'archer': return (lv.dmg / lv.cd) * eff;
+    case 'crossbow': return (lv.dmg / lv.cd) * eff;
     case 'cannon': return (lv.dmg / lv.cd) * 2.2 * eff;
-    case 'hwacha': return ((lv.dmg * lv.rockets) / lv.cd) * 1.3 * eff;
-    case 'dosa': {
+    case 'rocket': return ((lv.dmg * lv.rockets) / lv.cd) * 1.3 * eff;
+    case 'tesla': {
       let m = 0;
       for (let k = 0; k < lv.chain; k++) m += Math.pow(CHAIN_FALLOFF, k);
       return (lv.dmg / lv.cd) * (1 + (m - 1) * 0.7);
@@ -52,14 +52,14 @@ function power(type, level, mix) {
 }
 
 const STRATEGIES = {
-  /* 여러 타워를 섞고 장승을 곁들이는 무난한 운영 */
+  /* 여러 타워를 섞고 서리탑을 곁들이는 무난한 운영 */
   mixed(game) {
     const mix = upcoming(game);
     for (let guard = 0; guard < 40; guard++) {
       if (game.towers.length < 4 && game.wave < 3) {
         const spot = bestSpot(game, 2.6);
         if (game.gold < 50 || !spot) return;
-        game.build('archer', spot.x, spot.y);
+        game.build('crossbow', spot.x, spot.y);
         continue;
       }
       const options = [];
@@ -67,10 +67,10 @@ const STRATEGIES = {
       const auras = game.towers.filter((t) => t.def.kind === 'aura');
       if (attackers.length >= 3 * (auras.length + 1) && auras.length < 5) {
         const anchor = attackers[auras.length * 3] || attackers[0];
-        const spot = bestSpot(game, TOWERS.jangseung.levels[0].range, anchor);
-        if (spot) options.push({ value: 99, cost: 80, run: () => game.build('jangseung', spot.x, spot.y) });
+        const spot = bestSpot(game, TOWERS.frost.levels[0].range, anchor);
+        if (spot) options.push({ value: 99, cost: 80, run: () => game.build('frost', spot.x, spot.y) });
       }
-      for (const type of ['archer', 'cannon', 'hwacha', 'dosa']) {
+      for (const type of ['crossbow', 'cannon', 'rocket', 'tesla']) {
         const lv = TOWERS[type].levels[0];
         const spot = bestSpot(game, lv.range);
         if (!spot) continue;
@@ -103,15 +103,15 @@ const STRATEGIES = {
 
   /* 정해진 순서로 골고루 짓고, 틈틈이 강화하는 평범한 사람의 운영 */
   casual(game) {
-    const ORDER = ['archer', 'archer', 'cannon', 'archer', 'jangseung', 'dosa', 'archer', 'cannon', 'hwacha', 'dosa', 'jangseung'];
+    const ORDER = ['crossbow', 'crossbow', 'cannon', 'crossbow', 'frost', 'tesla', 'crossbow', 'cannon', 'rocket', 'tesla', 'frost'];
     for (let guard = 0; guard < 40; guard++) {
       const want = Math.min(24, Math.floor(4 + game.wave * 0.7));
       if (game.towers.length < want) {
         let type = ORDER[game.stats.built % ORDER.length];
-        if (game.gold < TOWERS[type].levels[0].cost && game.wave < 6) type = 'archer';
+        if (game.gold < TOWERS[type].levels[0].cost && game.wave < 6) type = 'crossbow';
         const lv = TOWERS[type].levels[0];
         if (game.gold < lv.cost) return;
-        const anchor = type === 'jangseung' ? game.towers[game.towers.length - 1] : null;
+        const anchor = type === 'frost' ? game.towers[game.towers.length - 1] : null;
         const spot = bestSpot(game, lv.range, anchor);
         if (!spot) return;
         game.build(type, spot.x, spot.y);
@@ -125,12 +125,12 @@ const STRATEGIES = {
     }
   },
 
-  /* 궁수대만 세우고 올리는 단순한 운영 */
-  archers(game) {
+  /* 석궁탑만 세우고 올리는 단순한 운영 */
+  crossbows(game) {
     for (let guard = 0; guard < 40; guard++) {
       const up = game.towers.find((t) => game.upgradeCost(t) != null && game.upgradeCost(t) <= game.gold);
       const spot = bestSpot(game, 2.6);
-      if (game.towers.length < 6 + game.wave && spot && game.gold >= 50) game.build('archer', spot.x, spot.y);
+      if (game.towers.length < 6 + game.wave && spot && game.gold >= 50) game.build('crossbow', spot.x, spot.y);
       else if (up) game.upgrade(up);
       else return;
     }

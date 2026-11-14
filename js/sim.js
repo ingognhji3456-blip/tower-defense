@@ -1,5 +1,5 @@
 'use strict';
-/* 도깨비 고개 — 시뮬레이션. DOM 없이 돌아가므로 Node 에서도 그대로 실행된다. */
+/* 철벽 요새 — 시뮬레이션. DOM 없이 돌아가므로 Node 에서도 그대로 실행된다. */
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -447,13 +447,15 @@ class Game {
   fire(t, target) {
     const lv = t.lv;
     switch (t.type) {
-      case 'archer':
+      case 'crossbow': {
+        const d0 = Math.max(0.3, Math.hypot(target.x - t.cx, target.y - t.cy));
         this.shots.push({
           kind: 'arrow', x: t.cx, y: t.cy, vx: 1, vy: 0, target, tx: target.x, ty: target.y,
-          speed: 13, dmg: lv.dmg, src: t,
+          speed: 13, dmg: lv.dmg, src: t, h: lv.h, h0: lv.h, d0, slope: lv.h / d0,
         });
-        this.emit('shoot', { kind: 'arrow', x: t.cx, y: t.cy });
+        this.emit('shoot', { kind: 'arrow', x: t.cx, y: t.cy, h: lv.h });
         break;
+      }
       case 'cannon': {
         const speed = 7;
         const p = {};
@@ -463,13 +465,13 @@ class Game {
         t.aimX = p.x;
         t.aimY = p.y;
         this.shots.push({
-          kind: 'shell', x: t.cx, y: t.cy, x0: t.cx, y0: t.cy, tx: p.x, ty: p.y, h: 0,
+          kind: 'shell', x: t.cx, y: t.cy, x0: t.cx, y0: t.cy, tx: p.x, ty: p.y, h: lv.h, h0: lv.h,
           t: 0, dur, dmg: lv.dmg, splash: lv.splash, src: t,
         });
-        this.emit('shoot', { kind: 'shell', x: t.cx, y: t.cy });
+        this.emit('shoot', { kind: 'shell', x: t.cx, y: t.cy, h: lv.h });
         break;
       }
-      case 'hwacha': {
+      case 'rocket': {
         const list = [target];
         while (list.length < lv.rockets) {
           const e = this.pickTarget(t, list);
@@ -479,10 +481,10 @@ class Game {
         t.burstList = list;
         t.burst = lv.rockets;
         t.burstT = 0;
-        this.emit('shoot', { kind: 'volley', x: t.cx, y: t.cy });
+        this.emit('shoot', { kind: 'volley', x: t.cx, y: t.cy, h: lv.h });
         break;
       }
-      case 'dosa': {
+      case 'tesla': {
         const chain = [target];
         let cur = target;
         while (chain.length < lv.chain) {
@@ -497,7 +499,7 @@ class Game {
           chain.push(next);
           cur = next;
         }
-        const pts = [{ x: t.cx + 0.2, y: t.cy - 0.1 }];
+        const pts = [{ x: t.cx, y: t.cy, h: lv.h }];
         let dmg = lv.dmg;
         for (const e of chain) {
           pts.push({ x: e.x, y: e.y });
@@ -525,11 +527,12 @@ class Game {
     const ty = target ? target.y : t.aimY;
     const a = Math.atan2(ty - t.cy, tx - t.cx) + (this.rand() - 0.5) * 1.1;
     t.recoil = 1;
+    const d0 = Math.max(0.3, Math.hypot(tx - t.cx, ty - t.cy));
     this.shots.push({
       kind: 'rocket', x: t.cx, y: t.cy, vx: Math.cos(a), vy: Math.sin(a), target, tx, ty,
-      speed: 4, life: 0, dmg: lv.dmg, splash: lv.splash, src: t,
+      speed: 4, life: 0, dmg: lv.dmg, splash: lv.splash, src: t, h: lv.h, h0: lv.h, d0, slope: lv.h / d0,
     });
-    this.emit('shoot', { kind: 'rocket', x: t.cx, y: t.cy });
+    this.emit('shoot', { kind: 'rocket', x: t.cx, y: t.cy, h: lv.h });
   }
 
   hit(e, dmg, kind, src) {
@@ -568,6 +571,7 @@ class Game {
         const dy = s.ty - s.y;
         const d = Math.hypot(dx, dy);
         const step = s.speed * dt;
+        s.h = s.h0 * Math.min(1, d / s.d0);
         if (d <= step + 0.1) {
           if (s.target && s.target.alive) {
             this.hit(s.target, s.dmg, 'phys', s.src);
@@ -585,7 +589,7 @@ class Game {
         const k = Math.min(1, s.t / s.dur);
         s.x = s.x0 + (s.tx - s.x0) * k;
         s.y = s.y0 + (s.ty - s.y0) * k;
-        s.h = Math.sin(k * Math.PI) * (0.35 + s.dur * 0.5);
+        s.h = s.h0 * (1 - k) + Math.sin(k * Math.PI) * (0.35 + s.dur * 0.5);
         if (k >= 1) {
           this.explode(s.tx, s.ty, s.splash, s.dmg, s.src);
           this.emit('explode', { kind: 'shell', x: s.tx, y: s.ty, r: s.splash });
@@ -599,6 +603,7 @@ class Game {
         const dy = s.ty - s.y;
         const d = Math.hypot(dx, dy);
         const step = s.speed * dt;
+        s.h = s.h0 * Math.min(1, d / s.d0);
         if (d <= step + 0.15 || s.life > 4) {
           this.explode(s.x, s.y, s.splash, s.dmg, s.src);
           this.emit('explode', { kind: 'rocket', x: s.x, y: s.y, r: s.splash });
@@ -647,7 +652,7 @@ class Game {
 
   serialize() {
     return {
-      v: 1,
+      v: 2,
       map: this.map.id,
       diff: this.diffId,
       gold: this.gold,
@@ -660,7 +665,7 @@ class Game {
   }
 
   static fromSave(d) {
-    if (!d || d.v !== 1 || !MAPS.some((m) => m.id === d.map)) return null;
+    if (!d || d.v !== 2 || !MAPS.some((m) => m.id === d.map)) return null;
     const g = new Game({ map: d.map, diff: d.diff });
     g.gold = Math.max(0, d.gold | 0);
     g.lives = Math.max(1, d.lives | 0);

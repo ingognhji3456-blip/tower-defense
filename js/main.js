@@ -1,10 +1,10 @@
 'use strict';
-/* 도깨비 고개 — 화면 조작, 메뉴, 저장, 게임 루프 */
+/* 철벽 요새 — 화면 조작, 메뉴, 저장, 게임 루프 */
 
 (function () {
   const $ = (id) => document.getElementById(id);
   const STEP = 1 / 60;
-  const KEY = { settings: 'dokkaebi.settings', save: 'dokkaebi.save', best: 'dokkaebi.best' };
+  const KEY = { settings: 'ironwall.settings', save: 'ironwall.save', best: 'ironwall.best' };
 
   /* 저장소는 막혀 있을 수 있다(사생활 보호 창 등). 없어도 게임은 돌아가야 한다. */
   const store = {
@@ -94,17 +94,17 @@
       out.push({ label, value: a, next: b !== a ? b : null });
     };
     switch (type) {
-      case 'jangseung':
+      case 'frost':
         add('둔화', (l) => Math.round(l.slow * 100), '%');
         add('거리', (l) => f1(l.range));
         if (lv.vuln || (next && next.vuln)) add('받는 피해', (l) => '+' + Math.round((l.vuln || 0) * 100), '%');
         break;
-      case 'hwacha':
+      case 'rocket':
         add('피해', (l) => l.dmg + '×' + l.rockets);
         add('장전', (l) => f1(l.cd), '초');
         add('거리', (l) => f1(l.range));
         break;
-      case 'dosa':
+      case 'tesla':
         add('피해', (l) => l.dmg);
         add('연쇄', (l) => l.chain);
         add('연사', (l) => f1(1 / l.cd));
@@ -147,11 +147,11 @@
       const ico = document.createElement('canvas');
       ico.className = 'card-ico';
       ico.width = 96;
-      ico.height = 96;
+      ico.height = 112;
       const c = ico.getContext('2d');
-      c.translate(48, 52);
-      c.scale(86, 86);
-      drawTowerSprite(c, type, 0, -0.6, { t: 0 });
+      c.translate(47, 80);
+      c.scale(62, 62);
+      drawTowerSprite(c, type, 0, 0.5, { t: 0.4 });
       const nm = document.createElement('span');
       nm.className = 'card-nm';
       nm.textContent = def.name;
@@ -159,7 +159,7 @@
       cost.className = 'card-cost';
       cost.append(String(def.levels[0].cost));
       const unit = document.createElement('i');
-      unit.textContent = '냥';
+      unit.textContent = 'G';
       cost.append(unit);
       const key = document.createElement('span');
       key.className = 'card-key';
@@ -177,11 +177,21 @@
   function drawThumb(canvas, map) {
     const c = canvas.getContext('2d');
     const s = canvas.width / COLS;
-    c.fillStyle = PAL.grassA;
+    const dot = (x, y, r, fill) => {
+      c.fillStyle = ART.OUT;
+      c.beginPath();
+      c.arc(x, y, r + 2, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = fill;
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fill();
+    };
+    c.fillStyle = ART.grass[1];
     c.fillRect(0, 0, canvas.width, canvas.height);
     c.lineJoin = 'round';
     c.lineCap = 'round';
-    for (const [color, width] of [[PAL.pathEdge, 0.95], [PAL.pathLight, 0.6]]) {
+    for (const [color, width] of [[ART.pathEdge, 0.95], [ART.path, 0.62]]) {
       c.strokeStyle = color;
       c.lineWidth = s * width;
       for (const w of map.paths) {
@@ -190,13 +200,10 @@
         c.stroke();
       }
     }
-    for (const w of map.paths) {
-      c.fillStyle = PAL.flame;
-      fillCircle(c, (w[0][0] + 0.5) * s, (w[0][1] + 0.5) * s, s * 0.55);
-    }
+    /* 보라 = 괴수 굴, 파랑 = 성문 */
+    for (const w of map.paths) dot((w[0][0] + 0.5) * s, (w[0][1] + 0.5) * s, s * 0.5, ART.purple[1]);
     const end = map.paths[0][map.paths[0].length - 1];
-    c.fillStyle = PAL.yellow;
-    fillCircle(c, (end[0] + 0.5) * s, (end[1] + 0.5) * s, s * 0.6);
+    dot((end[0] + 0.5) * s, (end[1] + 0.5) * s, s * 0.55, ART.blue[0]);
   }
 
   function bestText(mapId) {
@@ -257,7 +264,7 @@
     for (const b of el.diffs.children) b.setAttribute('aria-checked', String(b.dataset.diff === app.settings.diff));
     const map = MAPS.find((m) => m.id === app.settings.map);
     const d = DIFFICULTY[app.settings.diff];
-    el.mapNote.textContent = map.note + ' 엽전 ' + d.gold + '냥, 목숨 ' + d.lives + '개로 시작합니다.';
+    el.mapNote.textContent = map.note + ' 골드 ' + d.gold + ', 목숨 ' + d.lives + '개로 시작합니다.';
     el.resume.hidden = !inRun();
     const s = app.save;
     const savedMap = s && MAPS.find((m) => m.id === s.map);
@@ -341,7 +348,7 @@
     app.paused = false;
     el.result.hidden = true;
     closeMenu();
-    toast('시설을 골라 길가 빈 땅에 세운 뒤 시작을 누르세요.', 5000);
+    toast('탑을 골라 길가 빈 땅에 세운 뒤 시작을 누르세요.', 5000);
   }
 
   function loadGame(save) {
@@ -363,7 +370,7 @@
   /* 시작 화면 뒤에서 저절로 돌아가는 시연 */
   function startDemo() {
     const game = new Game({ map: app.settings.map, diff: 'normal', seed: (Math.random() * 2 ** 31) | 0 });
-    const plan = [['archer', 1], ['cannon', 1], ['jangseung', 0], ['dosa', 1], ['archer', 2], ['hwacha', 0], ['archer', 1], ['cannon', 0], ['dosa', 0]];
+    const plan = [['crossbow', 1], ['cannon', 1], ['frost', 0], ['tesla', 1], ['crossbow', 2], ['rocket', 0], ['cannon', 2], ['frost', 1], ['tesla', 0], ['rocket', 1]];
     for (const [type, level] of plan) {
       const range = TOWERS[type].levels[0].range;
       const spots = [];
@@ -415,7 +422,7 @@
     }
     if (g.phase === 'lost' || g.phase === 'won') return;
     if (g.gold < cost) {
-      deny('엽전이 ' + (cost - g.gold) + '냥 모자랍니다.');
+      deny('골드가 ' + (cost - g.gold) + ' 모자랍니다.');
       return;
     }
     g.build(app.placing, tile.x, tile.y);
@@ -463,7 +470,7 @@
     if (!t) return;
     const cost = app.game.upgradeCost(t);
     if (cost == null) return;
-    if (!app.game.upgrade(t)) deny('엽전이 ' + (cost - app.game.gold) + '냥 모자랍니다.');
+    if (!app.game.upgrade(t)) deny('골드가 ' + (cost - app.game.gold) + ' 모자랍니다.');
     refreshPanels();
   }
 
@@ -505,8 +512,8 @@
       cv.width = 64;
       cv.height = 64;
       const c = cv.getContext('2d');
-      c.translate(type === 'fox' || type === 'gumiho' ? 36 : 30, 37);
-      const s = 15 / def.r;
+      c.translate(31, 40);
+      const s = 14.5 / def.r;
       c.scale(s, s);
       drawEnemySprite(c, type, def.r, 0.3, { seed: 1 });
       chip.append(cv, '×' + count);
@@ -535,13 +542,13 @@
       el.selLevel.textContent = t.level + 1 + '단';
       fillStats(el.selStats, statList(t.type, t.lv, next));
       if (next) {
-        el.upgrade.textContent = '강화 ' + next.cost + '냥';
+        el.upgrade.textContent = '강화 ' + next.cost + 'G';
         el.upgrade.disabled = g.gold < next.cost;
       } else {
         el.upgrade.textContent = '최고 단계';
         el.upgrade.disabled = true;
       }
-      el.sell.textContent = (t.fresh ? '무르기 +' : '판매 +') + g.sellValue(t) + '냥';
+      el.sell.textContent = (t.fresh ? '무르기 +' : '판매 +') + g.sellValue(t) + 'G';
       el.target.hidden = t.def.kind === 'aura';
       el.target.textContent = '조준 · ' + TARGET_MODES.find((m) => m.id === t.mode).name;
     }
@@ -584,10 +591,10 @@
     const g = app.game;
     const won = g.phase === 'won';
     el.resEyebrow.textContent = won ? '승리' : '패배';
-    el.resTitle.textContent = won ? '고개를 지켜냈습니다' : '마을이 뚫렸습니다';
+    el.resTitle.textContent = won ? '성을 지켜냈습니다' : '성문이 뚫렸습니다';
     el.resText.textContent = won
-      ? g.map.name + '의 서른 웨이브를 모두 막아냈습니다. 무한 모드로 이어 가면 적이 끝없이 거세집니다.'
-      : g.wave + '번째 웨이브에서 도깨비 떼가 마을로 넘어갔습니다. 다음 웨이브에 누가 오는지 보고 시설을 섞어 보세요.';
+      ? g.map.name + '의 서른 웨이브를 모두 막아냈습니다. 무한 모드로 이어 가면 괴수가 끝없이 거세집니다.'
+      : g.wave + '번째 웨이브에서 괴수 떼가 성문을 넘었습니다. 다음 웨이브에 누가 오는지 보고 탑을 섞어 보세요.';
     el.tallyWave.textContent = String(won ? g.wave : g.wave - 1);
     el.tallyKills.textContent = String(g.stats.kills);
     el.tallyLives.textContent = String(g.lives);
@@ -795,7 +802,7 @@
     });
   }
 
-  window.dokkaebi = app;
+  window.td = app;
 
   const hot = window.claude && window.claude.hot;
   try {

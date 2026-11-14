@@ -10,7 +10,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const args = process.argv.slice(2);
 const fragment = args.includes('--fragment');
-const outFile = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(root, 'dist', 'dokkaebi-gogae.html'));
+const outFile = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(root, 'dist', 'tower-defense.html'));
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 
 let html = read('index.html');
