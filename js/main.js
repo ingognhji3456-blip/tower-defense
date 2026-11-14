@@ -212,7 +212,13 @@
       case 'laser':
         return [['초당 피해', (l) => f1(l.dps) + '~' + f1(l.dps * 3)], ['거리', (l) => f1(l.range)]];
       case 'lord':
-        return [['쌍광선', (l) => f1(l.dmg)], ['장전', (l) => f1(l.cd) + '초'], ['박쥐', (l) => l.bats + '마리×' + f1(l.batDps)], ['거리', (l) => f1(l.range)]];
+        return [
+          ['휩쓸기', (l) => f1(l.dmg)],
+          ['분신', (l) => l.clones + '×' + f1(l.cloneDps)],
+          ['불기둥', (l) => (l.pillar ? (l.pillars > 1 ? l.pillars + '×' : '') + f1(l.pillar) : '—')],
+          ['유성우', (l) => (l.meteor ? l.meteors + '×' + f1(l.meteor) : '—')],
+          ['거리', (l) => f1(l.range)],
+        ];
       default:
         return [['피해', (l) => f1(l.dmg)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
     }

@@ -77,7 +77,7 @@ const Sfx = {
   play(name) {
     if (!this.ctx || !this.enabled || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
-    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, bite: 0.18, lord: 0.1 }[name] || 0;
+    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, strike: 0.14, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1 }[name] || 0;
     if (gap && now - (this.last[name] || 0) < gap) return;
     this.last[name] = now;
     const S = this.scale;
@@ -126,19 +126,40 @@ const Sfx = {
         this.tone('sine', 1320, 1400, 0.3, 0.03);
         break;
       case 'lord':
-        /* 쌍광선: 두 줄기가 살짝 어긋나게 울린다 */
-        this.tone('sawtooth', 520, 1500, 0.2, 0.07);
-        this.tone('sawtooth', 560, 1700, 0.2, 0.06, 0.03);
-        this.tone('sine', 220, 60, 0.3, 0.3, 0.05);
-        this.hiss('bandpass', 1800, 600, 0.22, 0.14, 0.05);
+        /* 휩쓸기 광선: 길게 끌리는 불줄기 */
+        this.tone('sawtooth', 240, 620, 0.7, 0.07);
+        this.tone('sawtooth', 247, 600, 0.7, 0.05, 0.02);
+        this.tone('sine', 150, 55, 0.75, 0.3);
+        this.hiss('bandpass', 500, 2400, 0.75, 0.2);
+        break;
+      case 'sear':
+        this.hiss('bandpass', 1400, 500, 0.12, 0.1);
         break;
       case 'summon':
-        this.tone('sine', 110, 260, 0.5, 0.25);
-        this.hiss('lowpass', 300, 1400, 0.5, 0.14);
-        for (let i = 0; i < 4; i++) this.tone('square', 2400 + i * 260, 3000 + i * 200, 0.05, 0.03, 0.22 + i * 0.07);
+        this.tone('sine', 150, 48, 0.7, 0.4);
+        this.hiss('lowpass', 900, 200, 0.6, 0.2);
+        this.tone('triangle', 90, 180, 0.45, 0.12, 0.25);
         break;
-      case 'bite':
-        this.tone('square', 2600, 1900, 0.04, 0.018);
+      case 'slam':
+        this.tone('sine', 120, 40, 0.3, 0.5);
+        this.hiss('lowpass', 700, 150, 0.2, 0.3);
+        break;
+      case 'pillar':
+        this.hiss('bandpass', 300, 2600, 0.5, 0.3);
+        this.tone('sawtooth', 110, 420, 0.45, 0.09);
+        this.tone('sine', 80, 40, 0.4, 0.4);
+        break;
+      case 'sky':
+        this.tone('triangle', 260, 780, 0.9, 0.1);
+        this.tone('sine', 520, 1560, 0.9, 0.05);
+        break;
+      case 'meteor':
+        this.hiss('lowpass', 1100, 140, 0.32, 0.42);
+        this.tone('sine', 110, 38, 0.3, 0.42);
+        break;
+      case 'strike':
+        this.tone('sine', 190, 90, 0.07, 0.12);
+        this.hiss('lowpass', 1400, 500, 0.05, 0.07);
         break;
       case 'coin':
         this.tone('square', 1568, 1568, 0.05, 0.04);
@@ -221,7 +242,10 @@ const Sfx = {
         else if (d.kind === 'lord') this.play('lord');
         break;
       case 'summon': this.play('summon'); break;
-      case 'bite': this.play('bite'); break;
+      case 'strike': this.play('strike'); break;
+      case 'cast': this.play(d.kind === 'pillar' ? 'slam' : 'sky'); break;
+      case 'burst': this.play(d.kind === 'pillar' ? 'pillar' : 'meteor'); break;
+      case 'sear': this.play('sear'); break;
       case 'explode': this.play(d.kind === 'shell' ? 'boom' : d.kind === 'vial' ? 'splat' : 'pop'); break;
       case 'income': this.play('coin'); break;
       case 'bolt': this.play('zap'); break;

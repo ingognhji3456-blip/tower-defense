@@ -144,7 +144,8 @@ class Game {
     this.towers = [];
     this.enemies = [];
     this.shots = [];
-    this.minions = []; // 군주가 부른 박쥐들
+    this.minions = []; // 군주가 부른 그림자 분신들
+    this.strikes = []; // 군주의 불기둥·유성: 예고된 자리에 잠시 뒤 터진다
     this.queue = [];
     this.qi = 0;
     this.waveTime = 0;
@@ -248,7 +249,15 @@ class Game {
       burst: 0,
       burstT: 0,
       burstList: [],
-      cast: 0, // 군주: 소환 몸짓이 남은 시간
+      cast: 0, // 군주: 몸짓(소환·불기둥·유성우)이 남은 시간
+      castDur: 1,
+      gest: null, // 군주: 지금 하는 몸짓의 종류
+      idle: true, // 군주: 사거리 안에 적이 없다
+      mid: 0,
+      pillarT: 3.2, // 군주: 다음 불기둥까지
+      meteorT: 6.5, // 군주: 다음 유성우까지
+      sweep: null, // 군주: 지금 휘두르고 있는 광선 { a0, a1, a, t, dur, hit }
+      flip: false,
       summon: 1.2, // 군주: 다음 소환까지 남은 시간
       kills: 0,
       dealt: 0,
@@ -259,6 +268,7 @@ class Game {
       if (d < best) { best = d; t.aimX = s.x; t.aimY = s.y; }
     }
     t.lv = this.lvOf(type, 0);
+    t.mid = Math.atan2(t.aimY - t.cy, t.aimX - t.cx);
     if (t.lv.every) t.tick = t.lv.every;
     this.towers.push(t);
     this.grid[ty * COLS + tx] = TILE_TOWER;
@@ -318,6 +328,7 @@ class Game {
     this.gold += value;
     this.towers.splice(i, 1);
     this.minions = this.minions.filter((m) => m.src !== t);
+    this.strikes = this.strikes.filter((q) => q.src !== t);
     this.grid[t.y * COLS + t.x] = TILE_FREE;
     this.emit('sell', { tower: t, value });
     return true;
@@ -410,11 +421,14 @@ class Game {
       if (this.phase === 'lost') return;
       this.updateTowers(dt);
       this.updateMinions(dt);
+      this.updateStrikes(dt);
     } else if (this.phase === 'build') {
       for (const t of this.towers) {
         t.recoil = Math.max(0, t.recoil - dt * 4);
         t.flash = Math.max(0, t.flash - dt * 3);
         t.cast = Math.max(0, t.cast - dt);
+        t.sweep = null;
+        t.idle = true;
         t.beam = null;
       }
     }
@@ -718,55 +732,180 @@ class Game {
     if (!b.alive) t.beam = null;
   }
 
-  /* 군주: 두 손의 쌍광선이 겨눈 적을 꿰뚫고 그 둘레까지 터뜨린다. 때때로 박쥐 떼를 부른다. */
+  /* 군주: 두 손에서 뿜는 굵은 광선을 부채꼴로 휘둘러 지나간 자리의 적을 모두 태운다.
+     그 사이사이 그림자 분신을 부르고, 2단부터는 불기둥을 솟구치게 하고, 3단에서는 유성우를 떨군다. */
   runLord(t, dt) {
     const lv = t.lv;
     if (t.cast > 0) t.cast = Math.max(0, t.cast - dt);
     if (t.cd > 0) t.cd -= dt;
     if (t.summon > 0) t.summon -= dt;
+    if (t.pillarT > 0) t.pillarT -= dt;
+    if (t.meteorT > 0) t.meteorT -= dt;
+    if (t.sweep) { this.sweepLord(t, dt); return; }
     const target = this.pickTarget(t);
+    t.idle = !target;
     if (!target) return;
     t.aimX = target.x;
     t.aimY = target.y;
-    if (t.summon <= 0) {
-      t.summon = LORD_SUMMON;
-      t.cast = LORD_CAST;
-      t.cd = Math.max(t.cd, 0.45); /* 소환 몸짓이 끝난 뒤에 쏜다 */
-      for (let i = 0; i < lv.bats; i++) {
-        const a = (i / lv.bats) * Math.PI * 2 + this.rand() * 0.8;
-        this.minions.push({
-          id: this.nextId++, src: t, level: t.level, dps: lv.batDps, life: LORD_BAT_TIME, age: -i * 0.07,
-          x: t.cx, y: t.cy - 0.1, dx: 1, dy: 1, target: null, bite: false, nip: 0,
-          ox: Math.cos(a) * 0.16, oy: Math.sin(a) * 0.1, ph: this.rand() * 6.28,
-        });
-      }
-      this.emit('summon', { tower: t, n: lv.bats });
+    t.mid = Math.atan2(target.y - t.cy, target.x - t.cx); /* 몸이 보는 쪽: 겨눈 적, 휘두르는 동안은 부채꼴의 한가운데 */
+    if (t.cast > 0) return; /* 몸짓이 끝날 때까지는 다른 공격을 시작하지 않는다 */
+    if (lv.meteors && t.meteorT <= 0) {
+      t.meteorT = LORD_METEOR_EVERY;
+      this.lordGesture(t, 'meteor', 1.3);
+      this.lordMeteors(t);
       return;
     }
-    if (t.cd > 0) return;
-    t.cd = lv.cd;
-    t.recoil = 1;
-    t.flash = 1;
-    const x = target.x;
-    const y = target.y;
-    this.hit(target, lv.dmg, 'magic', t);
-    for (const e of this.enemies) {
-      if (!e.alive || e === target) continue;
-      const reach = lv.splash + e.r * 0.5;
-      const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
-      if (d2 > reach * reach) continue;
-      this.hit(e, lv.dmg * LORD_SPLASH * (1 - (SPLASH_FALLOFF * Math.sqrt(d2)) / reach), 'magic', t);
+    if (lv.pillar && t.pillarT <= 0) {
+      t.pillarT = LORD_PILLAR_EVERY;
+      this.lordGesture(t, 'pillar', 0.75);
+      this.lordPillars(t);
+      return;
     }
-    this.emit('shoot', { kind: 'lord', tower: t, x: t.cx, y: t.cy, h: lv.h, tx: x, ty: y, r: lv.splash, er: target.r });
+    if (t.summon <= 0) {
+      t.summon = LORD_SUMMON;
+      this.lordGesture(t, 'summon', LORD_CAST);
+      for (let i = 0; i < lv.clones; i++) {
+        const a = ((i + 0.5) / lv.clones) * Math.PI * 2 + this.rand() * 0.6;
+        this.minions.push({
+          id: this.nextId++, src: t, level: t.level, dps: lv.cloneDps, life: LORD_CLONE_TIME, age: -i * 0.09,
+          x: t.cx + Math.cos(a) * 0.5, y: t.cy + 0.12 + Math.sin(a) * 0.26, dx: 1, dy: 1,
+          target: null, strike: false, run: false, nip: 0, a, ph: this.rand() * 6.28,
+        });
+      }
+      this.emit('summon', { tower: t, n: lv.clones });
+      return;
+    }
+    /* 겨눈 적을 한가운데 두고, 번갈아 왼쪽·오른쪽에서부터 휘두른다 */
+    const mid = t.mid;
+    const half = (lv.arc / 2) * (t.flip ? -1 : 1);
+    if (t.cd > 0) {
+      if (t.cd < 0.5) {
+        /* 쏘기 직전에는 광선이 시작될 쪽을 미리 겨눈다 */
+        t.aimX = t.cx + Math.cos(mid - half) * lv.range;
+        t.aimY = t.cy + Math.sin(mid - half) * lv.range;
+      }
+      return;
+    }
+    t.cd = lv.cd;
+    t.flip = !t.flip;
+    t.sweep = { a0: mid - half, a1: mid + half, a: mid - half, t: 0, dur: LORD_SWEEP, hit: [] };
+    this.emit('shoot', { kind: 'lord', tower: t });
+    this.sweepLord(t, 0);
   }
 
-  /* 박쥐: 군주 가까이의 적에게 날아가 달라붙어 물어뜯는다. 적이 쓰러지면 다음 적을 찾고, 시간이 다하면 사라진다. */
+  /* 몸짓을 시작한다: 그동안은 광선을 쏘지 않는다 */
+  lordGesture(t, kind, dur) {
+    t.gest = kind;
+    t.cast = dur;
+    t.castDur = dur;
+    t.cd = Math.max(t.cd, dur * 0.8);
+  }
+
+  /* 불기둥: 적이 가장 많이 몰린 자리 밑에서 잠시 뒤 불길이 솟는다 */
+  lordPillars(t) {
+    const lv = t.lv;
+    const r2 = lv.range * lv.range;
+    const near = LORD_PILLAR_R * LORD_PILLAR_R;
+    const taken = [];
+    for (let i = 0; i < (lv.pillars || 1); i++) {
+      let best = null;
+      let bestN = 0;
+      for (const e of this.enemies) {
+        if (!e.alive || (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 > r2) continue;
+        if (taken.some((q) => (q.x - e.x) ** 2 + (q.y - e.y) ** 2 < 1.6)) continue;
+        let n = 0;
+        for (const o of this.enemies) {
+          if (o.alive && (o.x - e.x) ** 2 + (o.y - e.y) ** 2 <= near) n += o.boss ? 4 : 1;
+        }
+        if (n > bestN) { bestN = n; best = e; }
+      }
+      if (!best) break;
+      const delay = LORD_PILLAR_DELAY + i * 0.16;
+      const p = {};
+      best.path.at(Math.min(best.path.length, best.dist + (best.cur || best.speed) * delay), p);
+      taken.push({ x: best.x, y: best.y });
+      this.strikes.push({ kind: 'pillar', x: p.x, y: p.y, t: 0, delay, r: LORD_PILLAR_R, dmg: lv.pillar, src: t, seed: this.rand() });
+    }
+    this.emit('cast', { kind: 'pillar', tower: t });
+  }
+
+  /* 유성우: 사거리 안의 적들 머리 위로 불덩이가 잇달아 떨어진다 */
+  lordMeteors(t) {
+    const lv = t.lv;
+    const r2 = (lv.range + 0.4) ** 2;
+    const pool = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2);
+    for (let i = 0; i < lv.meteors && pool.length; i++) {
+      const e = pool[(this.rand() * pool.length) | 0];
+      const delay = LORD_METEOR_DELAY + i * 0.17;
+      const p = {};
+      e.path.at(Math.min(e.path.length, e.dist + (e.cur || e.speed) * delay), p);
+      this.strikes.push({
+        kind: 'meteor', x: p.x + (this.rand() - 0.5) * 0.3, y: p.y + (this.rand() - 0.5) * 0.3,
+        t: 0, delay, r: LORD_METEOR_R, dmg: lv.meteor, src: t, seed: this.rand(),
+      });
+    }
+    this.emit('cast', { kind: 'meteor', tower: t });
+  }
+
+  /* 예고된 자리에 시간이 되면 터지는 공격(불기둥·유성) */
+  updateStrikes(dt) {
+    const list = this.strikes;
+    if (!list.length) return;
+    for (const s of list) {
+      s.t += dt;
+      if (s.t < s.delay) continue;
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        const reach = s.r + e.r * 0.5;
+        const d2 = (e.x - s.x) ** 2 + (e.y - s.y) ** 2;
+        if (d2 > reach * reach) continue;
+        this.hit(e, s.dmg * (1 - (SPLASH_FALLOFF * Math.sqrt(d2)) / reach), 'magic', s.src);
+      }
+      this.emit('burst', { kind: s.kind, x: s.x, y: s.y, r: s.r });
+    }
+    this.strikes = list.filter((s) => s.t < s.delay);
+  }
+
+  /* 휩쓸기: 광선이 이번 틱에 지나간 각도 안에 든 적을 한 번씩 태운다 */
+  sweepLord(t, dt) {
+    const s = t.sweep;
+    const lv = t.lv;
+    const prev = s.a;
+    s.t += dt;
+    const k = Math.min(1, s.t / s.dur);
+    s.a = s.a0 + (s.a1 - s.a0) * k * k * (3 - 2 * k);
+    t.recoil = 1;
+    t.flash = 1;
+    t.aimX = t.cx + Math.cos(s.a) * lv.range;
+    t.aimY = t.cy + Math.sin(s.a) * lv.range;
+    const lo = Math.min(prev, s.a);
+    const hi = Math.max(prev, s.a);
+    const ref = (lo + hi) / 2;
+    for (const e of this.enemies) {
+      if (!e.alive || s.hit.includes(e)) continue;
+      const dx = e.x - t.cx;
+      const dy = e.y - t.cy;
+      const d = Math.hypot(dx, dy);
+      if (d > lv.range + e.r * 0.5) continue;
+      let ang = Math.atan2(dy, dx);
+      while (ang - ref > Math.PI) ang -= Math.PI * 2;
+      while (ang - ref < -Math.PI) ang += Math.PI * 2;
+      const pad = Math.atan2(LORD_BEAM + e.r * 0.5, Math.max(0.3, d)); /* 광선 굵기만큼의 각도 */
+      if (ang < lo - pad || ang > hi + pad) continue;
+      s.hit.push(e);
+      this.hit(e, lv.dmg, 'magic', t);
+      this.emit('sear', { x: e.x, y: e.y, r: e.r });
+    }
+    if (k >= 1) t.sweep = null;
+  }
+
+  /* 그림자 분신: 군주 곁의 땅에서 솟아, 가까운 적에게 달려가 주먹질한다. 적이 쓰러지면 다음 적을 찾고, 시간이 다하면 흩어진다. */
   updateMinions(dt) {
     const list = this.minions;
     if (!list.length) return;
     for (const m of list) {
       m.age += dt;
-      if (m.age < 0) continue; /* 한 마리씩 차례로 날아오른다 */
+      if (m.age < LORD_CLONE_RISE) continue; /* 땅에서 솟아오르는 동안은 움직이지 않는다 */
       m.life -= dt;
       const t = m.src;
       let e = m.target;
@@ -785,33 +924,38 @@ class Game {
       let tx;
       let ty;
       if (e && m.life > 0) {
-        tx = e.x + m.ox;
-        ty = e.y + m.oy - e.r * 0.3;
+        /* 적을 둘러싸고 선다 */
+        tx = e.x + Math.cos(m.a) * (e.r + 0.16);
+        ty = e.y + Math.sin(m.a) * (e.r * 0.6 + 0.1);
       } else {
-        /* 물 적이 없으면 군주 머리 위를 맴돈다 */
-        tx = t.cx + Math.cos(m.age * 2.2 + m.ph) * 0.55;
-        ty = t.cy - 0.5 + Math.sin(m.age * 2.2 + m.ph) * 0.22;
+        /* 때릴 적이 없으면 군주 곁으로 돌아와 선다 */
+        tx = t.cx + Math.cos(m.a) * 0.5;
+        ty = t.cy + 0.12 + Math.sin(m.a) * 0.26;
       }
       const dx = tx - m.x;
       const dy = ty - m.y;
       const d = Math.hypot(dx, dy);
-      const step = 6.5 * dt;
-      if (d <= step || (m.bite && d < 0.5)) {
+      const step = 4.6 * dt;
+      if (d <= step || (m.strike && d < 0.45)) {
         m.x = tx;
         m.y = ty;
+        m.run = false;
         if (e && m.life > 0) {
-          m.bite = true;
+          m.strike = true;
+          m.dx = Math.sign(e.x - m.x) || m.dx;
+          m.dy = Math.sign(e.y - m.y) || m.dy;
           this.hit(e, m.dps * dt, 'magic', t, true);
           m.nip -= dt;
           if (m.nip <= 0) {
-            m.nip = 0.4;
-            this.emit('bite', { x: m.x, y: m.y });
+            m.nip = 0.32;
+            this.emit('strike', { x: (m.x + e.x) / 2, y: (m.y + e.y) / 2 });
           }
         } else {
-          m.bite = false;
+          m.strike = false;
         }
       } else {
-        m.bite = false;
+        m.strike = false;
+        m.run = true;
         m.x += (dx / d) * step;
         m.y += (dy / d) * step;
         if (Math.abs(dx) > 0.05) m.dx = Math.sign(dx);
@@ -925,6 +1069,7 @@ class Game {
   endWave() {
     for (const m of this.minions) this.emit('poof', { x: m.x, y: m.y });
     this.minions.length = 0;
+    this.strikes.length = 0;
     const bonus = this.bonusAt(this.wave);
     this.gold += bonus;
     this.stats.earned += bonus;

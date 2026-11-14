@@ -129,25 +129,35 @@ const TOWERS = {
       { cost: 320, dps: 120, range: 3.6, h: 1.3 },
     ],
   },
-  /* 영웅: 건물이 아니라 전장에 직접 서는 군주. 한 판에 하나만 세울 수 있다.
-     h 는 두 손의 높이(쌍광선이 나가는 곳), bats 는 한 번에 부르는 박쥐 수, batDps 는 박쥐 한 마리의 초당 피해. */
+  /* 영웅: 건물이 아니라 전장에 직접 서는 군주. 한 판에 하나만 세울 수 있다. 강화할수록 공격이 는다.
+     dmg 는 광선이 한 번 휩쓸 때 적 하나가 받는 피해, arc 는 휩쓰는 부채꼴의 각도(라디안), h 는 두 손의 높이,
+     clones·cloneDps 는 분신의 수와 초당 피해, pillar(·pillars) 는 2단부터 쓰는 불기둥의 피해(와 개수),
+     meteor·meteors 는 3단의 유성 하나의 피해와 개수. */
   lord: {
     name: '심연의 군주', rarity: 'mythic', unique: true,
-    blurb: '두 손에서 쌍광선을 쏘아 맞은 자리 둘레까지 터뜨리고, 박쥐 떼를 불러 적을 물어뜯게 합니다. 한 판에 하나만 세울 수 있습니다.',
+    blurb: '굵은 불꽃 광선을 부채꼴로 휘둘러 범위 안의 적을 한꺼번에 태우고, 그림자 분신을 부립니다. 2단에서 불기둥, 3단에서 유성우를 익힙니다. 한 판에 하나만 세울 수 있습니다.',
     kind: 'magic',
     levels: [
-      { cost: 520, dmg: 95, cd: 1.5, range: 3.6, splash: 0.9, bats: 2, batDps: 14, h: 0.42 },
-      { cost: 460, dmg: 165, cd: 1.35, range: 4.0, splash: 1.05, bats: 3, batDps: 24, h: 0.48 },
-      { cost: 820, dmg: 300, cd: 1.15, range: 4.5, splash: 1.25, bats: 5, batDps: 40, h: 0.6 },
+      { cost: 520, dmg: 50, cd: 2.2, range: 3.4, arc: 1.3, clones: 2, cloneDps: 16, h: 0.42 },
+      { cost: 460, dmg: 66, cd: 2.0, range: 3.8, arc: 1.6, clones: 3, cloneDps: 24, pillar: 110, pillars: 1, h: 0.48 },
+      { cost: 820, dmg: 76, cd: 1.8, range: 4.3, arc: 2.0, clones: 4, cloneDps: 34, pillar: 150, pillars: 2, meteor: 110, meteors: 5, h: 0.6 },
     ],
   },
 };
 
 const FLAME_TICK = 0.15; // 화염탑이 피해를 주는 간격
 const POISON_TIME = 4; // 독이 이어지는 시간
-const LORD_SPLASH = 0.5; // 군주의 쌍광선: 둘레의 적이 받는 피해 비율
-const LORD_SUMMON = 7; // 박쥐 떼를 부르는 간격(초)
-const LORD_BAT_TIME = 5; // 박쥐가 머무는 시간(초)
+const LORD_SWEEP = 0.75; // 군주: 광선을 한 번 휘두르는 데 걸리는 시간(초)
+const LORD_BEAM = 0.28; // 군주: 광선의 반 굵기(칸)
+const LORD_PILLAR_EVERY = 5.5; // 불기둥을 쓰는 간격(초)
+const LORD_PILLAR_DELAY = 0.45; // 불기둥이 예고된 뒤 솟기까지(초)
+const LORD_PILLAR_R = 0.95; // 불기둥의 반지름(칸)
+const LORD_METEOR_EVERY = 11; // 유성우를 쓰는 간격(초)
+const LORD_METEOR_DELAY = 0.6; // 첫 유성이 떨어지기까지(초)
+const LORD_METEOR_R = 0.85; // 유성 하나가 터지는 반지름(칸)
+const LORD_SUMMON = 7; // 그림자 분신을 부르는 간격(초)
+const LORD_CLONE_TIME = 5; // 분신이 머무는 시간(초)
+const LORD_CLONE_RISE = 0.4; // 분신이 땅에서 솟아오르는 시간(초)
 const LORD_CAST = 0.9; // 소환 몸짓이 이어지는 시간(초)
 const BEAM_RAMP = 0.8; // 광선탑: 같은 적을 비춘 시간 1초마다 피해가 이만큼(배) 더 붙는다. 최대 3배.
 
@@ -176,7 +186,7 @@ function towerStats(type, level, rank) {
   if (!rank) return base;
   const k = 1 + RANK_BONUS * rank;
   const lv = Object.assign({}, base);
-  for (const key of ['dmg', 'dot', 'dps', 'batDps']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
+  for (const key of ['dmg', 'dot', 'dps', 'cloneDps', 'pillar', 'meteor']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
   if (lv.income) lv.income = Math.round(lv.income * (1 + 0.1 * rank));
   if (TOWERS[type].kind === 'aura') lv.range = Math.round(lv.range * (1 + 0.05 * rank) * 100) / 100;
   return lv;

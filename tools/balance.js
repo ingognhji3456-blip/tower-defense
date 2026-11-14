@@ -57,7 +57,9 @@ function power(game, type, level, mix) {
     case 'sniper': return (lv.dmg / lv.cd) * eff * 1.15;
     case 'flame': return lv.dps * 1.5;
     case 'laser': return lv.dps * 1.7;
-    case 'lord': return (lv.dmg / lv.cd) * 1.5 + lv.bats * lv.batDps * (LORD_BAT_TIME / LORD_SUMMON);
+    case 'lord':
+      return (lv.dmg / lv.cd) * 3 + lv.clones * lv.cloneDps * (LORD_CLONE_TIME / LORD_SUMMON)
+        + ((lv.pillar || 0) * (lv.pillars || 1) * 2.5) / LORD_PILLAR_EVERY + ((lv.meteor || 0) * (lv.meteors || 0) * 2) / LORD_METEOR_EVERY;
     default: return 0;
   }
 }
