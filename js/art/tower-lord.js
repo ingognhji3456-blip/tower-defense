@@ -1,7 +1,7 @@
 'use strict';
 /* 심연의 군주 — 건물이 아니라 전장에 직접 서는 영웅. 둥근 머리에 선으로 된 몸, 곧 막대 인간(졸라맨)이다.
    장식은 없다. 불꽃빛 몸, 빛나는 두 눈, 끝자락이 타들어 가는 검은 망토가 전부다.
-   두 손에서 뿜는 굵은 광선을 부채꼴로 휘두르고, 그림자 분신을 부린다.
+   두 손에서 뿜는 굵은 광선을 부채꼴로 휘두르고, 발을 굴러 화염파를 퍼뜨린다.
    1단: 허리까지 오는 짧은 망토.
    2단: 무릎까지 오는 망토, 발밑의 그을린 땅과 몸 둘레에 이는 작은 불길.
    3단: 발끝까지 내려오는 망토, 온몸을 감싸는 큰 불길과 머리 위의 불꽃. 땅에서 살짝 떠 있다.
@@ -9,14 +9,14 @@
    body 는 발밑의 그림자와 그을린 자국(움직이지 않는 부분), top 은 군주 자신.
    top 의 o 에는 { recoil, flash, t } 말고도 다음 값이 들어올 수 있다.
      charge  쏘기 직전 두 손에 불을 모으는 정도 (0 → 1): 무릎을 굽히고 두 팔을 겨눈다
-     cast    분신을 부르는 몸짓 (1 → 0): 한 팔을 치켜들고 다른 팔을 뒤로 뻗는다
-   hands(level, aim) 은 쏘는 동안 두 손의 위치(타일 중심 기준)를 돌려준다 — 광선이 거기서 나간다.
-   minion(ctx, level, t, st) 는 그림자 분신 하나를 그린다. st = { rise: 솟아오른 정도 0~1, run, strike } */
+     gest    지금 하는 몸짓: 'shock'(화염파: 움츠렸다가 두 팔을 벌리며 터뜨린다),
+             'pillar'(불기둥: 몸을 숙여 땅을 내리친다), 'meteor'(유성우: 두 팔을 하늘로 뻗는다)
+     cast    그 몸짓이 남은 정도 (1 → 0)
+   hands(level, aim, o) 는 쏘는 동안 두 손의 위치(타일 중심 기준)를 돌려준다 — 광선이 거기서 나간다. */
 (function () {
   const BODY = ['#ffd88f', '#ff9226', '#d6600b']; /* 몸: 밝은 곳, 앞쪽 팔다리, 뒤쪽 팔다리 */
   const CAPE = ['#5b566f', '#2f2b3d', '#1a1824']; /* 망토 겉감 */
   const INNER = ['#5a3626', '#3d241b', '#291712']; /* 망토 안감: 그을린 적갈색 */
-  const SHADE = ['#4d4666', '#27233a', '#15131f']; /* 그림자 분신 */
   const EYE = '#fff6cf';
   const GLOW = '255,150,40';
   const K = ART.K;
@@ -54,7 +54,7 @@
     const t = o.t || 0;
     const cast = o.cast || 0;
     const castK = Math.min(1, (1 - cast) * 6) * Math.min(1, cast * 3.5);
-    const gest = o.gest || 'summon';
+    const gest = o.gest || 'shock';
     const fire = o.pose ? o.pose.fire : o.recoil > 0 ? Math.min(1, o.recoil * 1.5) : 0;
     const aimK = (o.pose ? Math.max(o.pose.aim, fire) : Math.max(o.charge || 0, fire)) * (1 - castK);
     const dir = o.face || (Math.cos(aim) >= 0 ? 1 : -1);
@@ -64,17 +64,20 @@
     const bob = Math.sin(t * 2.6) * 0.006;
     const slam = gest === 'pillar' ? castK : 0;
     const sky = gest === 'meteor' ? castK : 0;
-    const call = gest === 'summon' ? castK : 0;
+    /* 화염파는 두 박자다: 움츠렸다가(wind), 발을 구르며 두 팔을 벌려 터뜨린다(blast) */
+    const burst = gest === 'shock' ? Math.max(0, Math.min(1, (1 - cast - 0.2) / 0.12)) : 0;
+    const wind = gest === 'shock' ? castK * (1 - burst) : 0;
+    const blast = gest === 'shock' ? castK * burst : 0;
     /* 겨눌 때는 다리를 벌리고 무릎을 굽혀 버티고, 쏘는 동안은 뒤로 젖혀진다. 불기둥은 몸을 숙여 땅을 내리친다. */
-    const crouch = (float ? 0 : aimK * 0.05) + slam * (float ? 0.06 : 0.16);
-    const lunge = float ? 0 : aimK * 0.085 + slam * 0.07;
-    const lean = aimK * 0.14 - fire * 0.3 - call * 0.1 + slam * 0.5 - sky * 0.16;
+    const crouch = (float ? 0 : aimK * 0.05) + slam * (float ? 0.06 : 0.16) + wind * (float ? 0.05 : 0.13);
+    const lunge = float ? 0 : aimK * 0.085 + slam * 0.07 + blast * 0.06;
+    const lean = aimK * 0.14 - fire * 0.3 + slam * 0.5 - sky * 0.16 + wind * 0.3 - blast * 0.2;
     const hip = [-lunge * 0.3 - fire * 0.025, -0.3 + crouch + bob];
     const neck = [hip[0] + Math.sin(lean) * 0.3, hip[1] - Math.cos(lean) * 0.3];
     const head = [neck[0] + Math.sin(lean - sky * 0.25) * 0.115 + 0.012, neck[1] - Math.cos(lean - sky * 0.25) * 0.115];
     /* 몸짓마다 두 팔이 가는 곳 [뒤쪽 팔, 앞쪽 팔] */
     const reach = {
-      summon: [Math.PI + 0.3, -Math.PI / 2 + 0.2],
+      shock: [Math.PI / 2 + 0.9 + burst * (Math.PI / 2 - 0.65), Math.PI / 2 - 0.9 - burst * (Math.PI / 2 - 0.65)],
       pillar: [Math.PI + 0.75, Math.PI / 2 - 0.4],
       meteor: [-Math.PI / 2 - 0.34, -Math.PI / 2 + 0.36],
     }[gest];
@@ -88,7 +91,7 @@
       while (up - th > Math.PI) up -= Math.PI * 2;
       while (up - th < -Math.PI) up += Math.PI * 2;
       th += (up - th) * castK;
-      const bend = (side < 0 ? -0.5 : 0.5) * (1 - aimK) * (1 - castK) + castK * 0.12 * side;
+      const bend = (side < 0 ? -0.5 : 0.5) * (1 - aimK) * (1 - castK) + castK * 0.12 * side + wind * 0.75 * side;
       const len = ARM * (1 + fire * 0.06 + slam * 0.08);
       const el = [sh[0] + Math.cos(th + bend) * len, sh[1] + Math.sin(th + bend) * len];
       const hd = [el[0] + Math.cos(th - bend) * len, el[1] + Math.sin(th - bend) * len];
@@ -104,8 +107,8 @@
     return {
       s: SCALE[level],
       dir,
-      hover: float ? 0.08 + 0.016 * Math.sin(t * 2.2) + call * 0.03 + sky * 0.07 - slam * 0.05 : (call + sky) * 0.015,
-      t, castK, fire, aimK, gest, slam, sky, hip, neck, head,
+      hover: float ? 0.08 + 0.016 * Math.sin(t * 2.2) + sky * 0.07 - slam * 0.05 - wind * 0.04 + blast * 0.05 : sky * 0.015 + blast * 0.04,
+      t, castK, fire, aimK, gest, slam, sky, wind, blast, hip, neck, head,
       armB: arm(-1),
       armF: arm(1),
       legB: leg(-1),
@@ -115,7 +118,7 @@
 
   /* 몸 둘레에 이는 불길: 단계가 오를수록 커진다 */
   function aura(ctx, level, p) {
-    const power = [0, 0.5, 1][level] + p.fire * 0.2 + p.aimK * 0.12 + p.castK * 0.15;
+    const power = [0, 0.5, 1][level] + p.fire * 0.2 + p.aimK * 0.12 + p.castK * 0.15 + p.blast * 0.5;
     if (power < 0.08) return;
     const n = level === 2 ? 7 : 5;
     const span = 0.12 + power * 0.1;
@@ -145,7 +148,7 @@
   /* 망토: 목에서 뒤로 흘러내린다. 단계가 오를수록 길고 넓다. 끝자락은 타들어 가며 빛난다. */
   function cape(ctx, level, p) {
     const t = p.t;
-    const flare = p.fire * 0.12 + p.castK * 0.12 + p.aimK * 0.03;
+    const flare = p.fire * 0.12 + p.castK * 0.1 + p.aimK * 0.03 + p.blast * 0.12;
     const nx = p.neck[0];
     const ny = p.neck[1];
     const hem = [-0.3, -0.12, 0.03][level] + p.fire * 0.02;
@@ -331,24 +334,14 @@
           artLine(ctx, 'rgba(255,216,143,' + p.slam + ')', [x + Math.cos(a) * 0.05, y + Math.sin(a) * 0.05, x + Math.cos(a) * (0.1 + p.slam * 0.06), y + Math.sin(a) * (0.1 + p.slam * 0.06)], 0.014);
         }
       }
-      if (p.castK > 0 && p.gest === 'summon') {
-        /* 치켜든 손 위에 도는 소환 문양 */
-        const x = p.armF.hd[0];
-        const y = p.armF.hd[1] - 0.08;
-        ctx.globalAlpha = p.castK;
-        for (const off of [0, Math.PI]) {
-          const pts = [];
-          for (let i = 0; i < 3; i++) {
-            const a = t * 3 + off + (i * Math.PI * 2) / 3;
-            pts.push(x + Math.cos(a) * 0.08, y + Math.sin(a) * 0.08 * 0.6);
-          }
-          artPath(ctx, pts);
-          ctx.strokeStyle = '#ffe2a8';
-          ctx.lineWidth = 0.012;
-          ctx.stroke();
+      if (p.blast > 0.3) {
+        /* 터져 나오는 순간 몸에서 뻗는 불빛 */
+        const x = p.neck[0];
+        const y = (p.neck[1] + p.hip[1]) / 2;
+        for (let i = 0; i < 8; i++) {
+          const a = (i * Math.PI) / 4 + 0.2;
+          artLine(ctx, 'rgba(255,216,143,' + p.blast * 0.9 + ')', [x + Math.cos(a) * 0.16, y + Math.sin(a) * 0.16, x + Math.cos(a) * (0.26 + p.blast * 0.1), y + Math.sin(a) * (0.26 + p.blast * 0.1)], 0.016);
         }
-        artSparkle(ctx, x, y, 0.05, '#ffffff', p.castK);
-        ctx.globalAlpha = 1;
       }
       ctx.restore();
     },
@@ -360,85 +353,5 @@
       return [at(p.armB.hd), at(p.armF.hd)];
     },
 
-    /* 그림자 분신: 군주를 닮은 작고 검은 막대 인간. 원점은 두 발 사이, 오른쪽을 본다. */
-    minion(ctx, level, t, st) {
-      const s = [0.6, 0.66, 0.74][level];
-      const rise = st && st.rise != null ? st.rise : 1;
-      const run = st && st.run;
-      const strike = st && st.strike;
-      /* 발밑에 번지는 그림자 */
-      ctx.beginPath();
-      ctx.ellipse(0, 0.01, 0.17, 0.06, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(21,19,31,' + (0.5 + (1 - rise) * 0.3) + ')';
-      ctx.fill();
-      ctx.save();
-      ctx.scale(s, s);
-      if (rise < 1) {
-        /* 땅에서 솟아오른다: 땅 위로 올라온 만큼만 보인다 */
-        ctx.beginPath();
-        ctx.rect(-0.6, -1.4, 1.2, 1.4);
-        ctx.clip();
-        ctx.translate(0, (1 - rise) * 0.85);
-      }
-      const ph = t * (run ? 17 : 3);
-      const sw = run ? Math.sin(ph) : 0;
-      const jab = strike ? Math.sin(t * 24) : 0;
-      const lean = run ? 0.3 : strike ? 0.22 : 0.02;
-      const hip = [strike ? -0.03 : 0, -0.3 + (run ? Math.abs(sw) * 0.02 : 0)];
-      const neck = [hip[0] + Math.sin(lean) * 0.3, hip[1] - Math.cos(lean) * 0.3];
-      const hd = [neck[0] + Math.sin(lean) * 0.115 + 0.01, neck[1] - Math.cos(lean) * 0.115];
-      const footB = run ? [-sw * 0.13, -Math.max(0, -Math.cos(ph)) * 0.07] : [strike ? -0.13 : -0.07, 0];
-      const footF = run ? [sw * 0.13, -Math.max(0, Math.cos(ph)) * 0.07] : [strike ? 0.12 : 0.07, 0];
-      const armAt = (side) => {
-        const sh = [neck[0] + side * 0.012, neck[1] + 0.035];
-        let th;
-        let len = ARM;
-        if (strike) {
-          /* 번갈아 내지르는 주먹 */
-          const out = Math.max(0, side * jab);
-          th = 0.15 - out * 0.2 + (1 - out) * (side > 0 ? 0.9 : 1.3);
-          len = ARM * (0.72 + out * 0.36);
-        } else if (run) {
-          th = Math.PI / 2 - side * sw * 0.9;
-        } else {
-          th = Math.PI / 2 + (side < 0 ? 0.35 : -0.3);
-        }
-        const bend = strike ? (1 - Math.max(0, side * jab)) * 0.7 : run ? 0.5 : side * 0.35;
-        const el = [sh[0] + Math.cos(th + bend) * len, sh[1] + Math.sin(th + bend) * len];
-        return [sh[0], sh[1], el[0], el[1], el[0] + Math.cos(th - bend) * len, el[1] + Math.sin(th - bend) * len];
-      };
-      const legAt = (foot) => {
-        const k = joint(hip, foot, LIMB, 1);
-        return [hip[0], hip[1], k[0], k[1], foot[0], foot[1], foot[0] + 0.05, foot[1]];
-      };
-      const aB = armAt(-1);
-      const aF = armAt(1);
-      if (level >= 1) {
-        /* 2단부터는 분신도 짧은 망토를 두른다 */
-        const wv = Math.sin(t * 6) * 0.02 + (run ? 0.08 : 0);
-        artPoly(ctx, SHADE[2], [neck[0] - 0.035, neck[1] + 0.02, neck[0] - 0.15 - wv, neck[1] + 0.13, neck[0] - 0.2 - wv, neck[1] + 0.3, neck[0] - 0.13 - wv, neck[1] + 0.27, neck[0] - 0.09, neck[1] + 0.33, neck[0] - 0.01, neck[1] + 0.1]);
-      }
-      artStroke(ctx, SHADE[2], aB, W);
-      artStroke(ctx, SHADE[2], legAt(footB), W);
-      artStroke(ctx, SHADE[1], legAt(footF), W);
-      artStroke(ctx, SHADE[1], [neck[0], neck[1], hip[0], hip[1]], W);
-      artCircle(ctx, SHADE[1], hd[0], hd[1], 0.1);
-      artEllipse(ctx, SHADE[0], hd[0] - 0.03, hd[1] - 0.04, 0.04, 0.028, 0, -0.5);
-      artStroke(ctx, SHADE[1], aF, W);
-      artCircle(ctx, SHADE[1], aF[4], aF[5], 0.04, ART.LW);
-      artCircle(ctx, SHADE[2], aB[4], aB[5], 0.04, ART.LW);
-      /* 불빛 눈 */
-      if (level === 2) artGlow(ctx, hd[0] + 0.04, hd[1], 0.12, GLOW, 0.5);
-      for (const [ex, ew] of [[hd[0] + 0.008, 0.028], [hd[0] + 0.066, 0.021]]) {
-        const ey = hd[1] + 0.008;
-        artPoly(ctx, level === 2 ? '#ffd88f' : '#ff9226', [ex - ew, ey - 0.024, ex + ew, ey - 0.006, ex + ew * 0.75, ey + 0.022, ex - ew * 0.8, ey + 0.016], 0);
-      }
-      if (strike && jab !== 0) {
-        /* 주먹 끝의 타격 섬광 */
-        const f = jab > 0 ? aF : aB;
-        if (Math.abs(jab) > 0.7) artSparkle(ctx, f[4] + 0.05, f[5], 0.07, '#ffe2a8', 0.9);
-      }
-      ctx.restore();
-    },
   };
 })();

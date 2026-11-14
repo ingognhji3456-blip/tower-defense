@@ -131,16 +131,16 @@ const TOWERS = {
   },
   /* 영웅: 건물이 아니라 전장에 직접 서는 군주. 한 판에 하나만 세울 수 있다. 강화할수록 공격이 는다.
      dmg 는 광선이 한 번 휩쓸 때 적 하나가 받는 피해, arc 는 휩쓰는 부채꼴의 각도(라디안), h 는 두 손의 높이,
-     clones·cloneDps 는 분신의 수와 초당 피해, pillar(·pillars) 는 2단부터 쓰는 불기둥의 피해(와 개수),
-     meteor·meteors 는 3단의 유성 하나의 피해와 개수. */
+     shock·shockR·push 는 화염파의 피해·반지름·밀어내는 거리(칸),
+     pillar(·pillars) 는 2단부터 쓰는 불기둥의 피해(와 개수), meteor·meteors 는 3단의 유성 하나의 피해와 개수. */
   lord: {
     name: '심연의 군주', rarity: 'mythic', unique: true,
-    blurb: '굵은 불꽃 광선을 부채꼴로 휘둘러 범위 안의 적을 한꺼번에 태우고, 그림자 분신을 부립니다. 2단에서 불기둥, 3단에서 유성우를 익힙니다. 한 판에 하나만 세울 수 있습니다.',
+    blurb: '굵은 불꽃 광선을 부채꼴로 휘둘러 범위 안의 적을 한꺼번에 태우고, 적이 다가오면 화염파로 태우며 밀어냅니다. 2단에서 불기둥, 3단에서 유성우를 익힙니다. 한 판에 하나만 세울 수 있습니다.',
     kind: 'magic',
     levels: [
-      { cost: 520, dmg: 50, cd: 2.2, range: 3.4, arc: 1.3, clones: 2, cloneDps: 16, h: 0.42 },
-      { cost: 460, dmg: 66, cd: 2.0, range: 3.8, arc: 1.6, clones: 3, cloneDps: 24, pillar: 110, pillars: 1, h: 0.48 },
-      { cost: 820, dmg: 76, cd: 1.8, range: 4.3, arc: 2.0, clones: 4, cloneDps: 34, pillar: 150, pillars: 2, meteor: 110, meteors: 5, h: 0.6 },
+      { cost: 520, dmg: 50, cd: 2.2, range: 3.4, arc: 1.3, shock: 30, shockR: 1.9, push: 0.9, h: 0.42 },
+      { cost: 460, dmg: 64, cd: 2.0, range: 3.8, arc: 1.6, shock: 44, shockR: 2.1, push: 1.1, pillar: 100, pillars: 1, h: 0.48 },
+      { cost: 820, dmg: 70, cd: 1.8, range: 4.3, arc: 2.0, shock: 58, shockR: 2.4, push: 1.3, pillar: 130, pillars: 2, meteor: 95, meteors: 5, h: 0.6 },
     ],
   },
 };
@@ -155,10 +155,9 @@ const LORD_PILLAR_R = 0.95; // 불기둥의 반지름(칸)
 const LORD_METEOR_EVERY = 11; // 유성우를 쓰는 간격(초)
 const LORD_METEOR_DELAY = 0.6; // 첫 유성이 떨어지기까지(초)
 const LORD_METEOR_R = 0.85; // 유성 하나가 터지는 반지름(칸)
-const LORD_SUMMON = 7; // 그림자 분신을 부르는 간격(초)
-const LORD_CLONE_TIME = 5; // 분신이 머무는 시간(초)
-const LORD_CLONE_RISE = 0.4; // 분신이 땅에서 솟아오르는 시간(초)
-const LORD_CAST = 0.9; // 소환 몸짓이 이어지는 시간(초)
+const LORD_SHOCK_EVERY = 6; // 화염파를 쓰는 간격(초)
+const LORD_SHOCK_TIME = 0.4; // 화염파가 끝까지 퍼지는 시간(초)
+const LORD_SHOCK_AT = 0.7; // 몸짓이 이만큼 남았을 때(전체의 비율) 발을 굴러 화염파가 나간다
 const BEAM_RAMP = 0.8; // 광선탑: 같은 적을 비춘 시간 1초마다 피해가 이만큼(배) 더 붙는다. 최대 3배.
 
 /* ───────── 뽑기와 등급 ─────────
@@ -186,7 +185,7 @@ function towerStats(type, level, rank) {
   if (!rank) return base;
   const k = 1 + RANK_BONUS * rank;
   const lv = Object.assign({}, base);
-  for (const key of ['dmg', 'dot', 'dps', 'cloneDps', 'pillar', 'meteor']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
+  for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
   if (lv.income) lv.income = Math.round(lv.income * (1 + 0.1 * rank));
   if (TOWERS[type].kind === 'aura') lv.range = Math.round(lv.range * (1 + 0.05 * rank) * 100) / 100;
   return lv;

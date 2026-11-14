@@ -77,7 +77,7 @@ const Sfx = {
   play(name) {
     if (!this.ctx || !this.enabled || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
-    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, strike: 0.14, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1 }[name] || 0;
+    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1 }[name] || 0;
     if (gap && now - (this.last[name] || 0) < gap) return;
     this.last[name] = now;
     const S = this.scale;
@@ -135,10 +135,11 @@ const Sfx = {
       case 'sear':
         this.hiss('bandpass', 1400, 500, 0.12, 0.1);
         break;
-      case 'summon':
-        this.tone('sine', 150, 48, 0.7, 0.4);
-        this.hiss('lowpass', 900, 200, 0.6, 0.2);
-        this.tone('triangle', 90, 180, 0.45, 0.12, 0.25);
+      case 'shock':
+        /* 발 구르는 소리와 퍼져 나가는 불길 */
+        this.tone('sine', 140, 36, 0.4, 0.6);
+        this.hiss('lowpass', 2200, 300, 0.45, 0.32);
+        this.tone('sawtooth', 300, 90, 0.35, 0.07);
         break;
       case 'slam':
         this.tone('sine', 120, 40, 0.3, 0.5);
@@ -156,10 +157,6 @@ const Sfx = {
       case 'meteor':
         this.hiss('lowpass', 1100, 140, 0.32, 0.42);
         this.tone('sine', 110, 38, 0.3, 0.42);
-        break;
-      case 'strike':
-        this.tone('sine', 190, 90, 0.07, 0.12);
-        this.hiss('lowpass', 1400, 500, 0.05, 0.07);
         break;
       case 'coin':
         this.tone('square', 1568, 1568, 0.05, 0.04);
@@ -241,10 +238,11 @@ const Sfx = {
         else if (d.kind === 'beam') this.play('beam');
         else if (d.kind === 'lord') this.play('lord');
         break;
-      case 'summon': this.play('summon'); break;
-      case 'strike': this.play('strike'); break;
-      case 'cast': this.play(d.kind === 'pillar' ? 'slam' : 'sky'); break;
-      case 'burst': this.play(d.kind === 'pillar' ? 'pillar' : 'meteor'); break;
+      case 'cast':
+        if (d.kind === 'pillar') this.play('slam');
+        else if (d.kind === 'meteor') this.play('sky');
+        break;
+      case 'burst': this.play(d.kind === 'shock' ? 'shock' : d.kind === 'pillar' ? 'pillar' : 'meteor'); break;
       case 'sear': this.play('sear'); break;
       case 'explode': this.play(d.kind === 'shell' ? 'boom' : d.kind === 'vial' ? 'splat' : 'pop'); break;
       case 'income': this.play('coin'); break;

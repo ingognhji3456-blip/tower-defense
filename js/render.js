@@ -386,7 +386,11 @@ class Renderer {
         this.spark(d.x, d.y, 6, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 2.2, life: 0.36, size: 0.07, lift: -0.9 });
         break;
       case 'burst':
-        if (d.kind === 'pillar') {
+        if (d.kind === 'shock') {
+          /* 발을 구른 자리에서 불티가 사방으로 튄다 (퍼지는 고리는 drawShockwaves 가 그린다) */
+          this.spark(d.x, d.y + 0.2, 22, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: d.r * 2.6, life: 0.4, size: 0.075, lift: -0.4 });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.14);
+        } else if (d.kind === 'pillar') {
           this.columns.push({ x: d.x, y: d.y, r: d.r, life: 0.6, max: 0.6 });
           this.rings.push({ x: d.x, y: d.y, r: d.r * 1.25, life: 0.4, max: 0.4, color: '255,150,40' });
           this.spark(d.x, d.y, 14, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 2.4, life: 0.6, size: 0.08, lift: -2.6, spread: d.r });
@@ -396,18 +400,6 @@ class Renderer {
           this.spark(d.x, d.y, 5, { color: ['#4a4658', '#6b6678'], speed: 0.8, life: 0.75, size: 0.13, lift: -0.5, soft: true });
           if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.1);
         }
-        break;
-      case 'summon': {
-        const tw = d.tower;
-        this.rings.push({ x: tw.cx, y: tw.cy + 0.2, r: 1.1, life: 0.5, max: 0.5, color: '40,34,58' });
-        this.spark(tw.cx, tw.cy + 0.1, 12, { color: ['#15131f', '#27233a', '#4d4666'], speed: 1.4, life: 0.6, size: 0.09, lift: -0.5, soft: true, spread: 0.5 });
-        break;
-      }
-      case 'strike':
-        this.spark(d.x, d.y, 3, { color: ['#ffe2a8', '#ff9226', '#ffffff'], speed: 1.8, life: 0.2, size: 0.04 });
-        break;
-      case 'poof':
-        this.spark(d.x, d.y - 0.2, 6, { color: ['#15131f', '#27233a', '#4d4666'], speed: 0.8, life: 0.5, size: 0.09, lift: -0.5, soft: true });
         break;
       case 'income':
         if (!this.clean) this.floaters.push({ x: d.tower.cx, y: d.tower.cy - d.tower.lv.h - 0.1, text: '+' + d.amount, color: '#ffe27e', life: 1, max: 1 });
@@ -519,6 +511,7 @@ class Renderer {
     }
 
     this.drawStrikeMarks(ctx, t);
+    this.drawShockwaves(ctx, t);
     this.drawActors(ctx, t, dt);
     this.drawBeams(ctx, t);
     this.drawSweeps(ctx, t);
@@ -598,9 +591,6 @@ class Renderer {
         }
       }
     }
-    for (const m of game.minions) {
-      if (m.age >= 0) list.push({ k: this.v(m.x, m.y) + 0.12, kind: 6, a: m, x: m.x, y: m.y });
-    }
     list.sort((p, q) => p.k - q.k);
 
     /* 화면 밖에 있는 것은 그리지 않는다 (키 큰 그림이 걸칠 수 있어 여유를 둔다) */
@@ -627,7 +617,6 @@ class Renderer {
         case 2: this.landmark(ctx, it.x, it.y, 0.72, (c) => TERRAIN_ART.gate(c, t, this.alarm)); break;
         case 3: this.drawTower(ctx, it.a, t, dt); break;
         case 4: this.drawEnemy(ctx, it.a, t); break;
-        case 6: this.drawClone(ctx, it.a, t); break;
         case 5: {
           const art = ENEMY_ART[it.a.type];
           if (art && art.segment) this.at(ctx, it.x, it.y, (c) => art.segment(c, it.a.r, it.i, it.a.def.tail.n, t));
@@ -894,16 +883,48 @@ class Renderer {
     this.columns.length = n;
   }
 
-  /* 군주가 부른 그림자 분신 */
-  drawClone(ctx, m, t) {
-    const ts = this.ts;
-    const fade = Math.min(1, m.life / 0.3);
-    ctx.save();
-    ctx.translate(this.px(m.x, m.y), this.py(m.x, m.y) + ts * 0.12);
-    ctx.scale(ts * ((this.transposed ? m.dy : m.dx) < 0 ? -1 : 1), ts);
-    if (fade < 1) ctx.globalAlpha = Math.max(0, fade);
-    TOWER_ART.lord.minion(ctx, m.level, t + m.ph, { rise: Math.min(1, m.age / LORD_CLONE_RISE), run: m.run, strike: m.strike });
-    ctx.restore();
+  /* 군주의 화염파: 발밑에서 퍼져 나가는 불 고리 */
+  drawShockwaves(ctx, t) {
+    const { ts, game } = this;
+    for (const tw of game.towers) {
+      const w = tw.wave;
+      if (!w) continue;
+      const k = Math.min(1, w.t / w.dur);
+      const x = this.px(tw.cx, tw.cy);
+      const y = this.py(tw.cx, tw.cy) + ts * 0.2;
+      const r = Math.max(1, (w.now || 0) * ts);
+      const fade = 1 - k * k;
+      ctx.fillStyle = `rgba(255,120,30,${0.2 * fade})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      for (const [width, color] of [[0.5, `rgba(255,104,24,${0.4 * fade})`], [0.28, `rgba(255,170,60,${0.9 * fade})`], [0.12, `rgba(255,246,207,${fade})`]]) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, ts * width * (1 - k * 0.5));
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (!this.reduced) {
+        /* 고리를 따라 이는 불꽃 */
+        for (let i = 0; i < 5; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const life = 0.25 + Math.random() * 0.2;
+          this.particles.push({
+            u: this.u(tw.cx, tw.cy) + (Math.cos(a) * r) / ts,
+            v: this.v(tw.cx, tw.cy) + 0.2 + (Math.sin(a) * r) / ts,
+            du: Math.cos(a) * 1.4,
+            dv: Math.sin(a) * 1.4 - 1,
+            g: 0,
+            life,
+            max: life,
+            size: 0.1 + Math.random() * 0.07,
+            fire: true,
+          });
+        }
+        if (this.particles.length > 500) this.particles.splice(0, this.particles.length - 500);
+      }
+    }
   }
 
   /* 군주의 휩쓸기 광선: 두 손에서 사거리 끝까지 뻗은 굵은 불줄기가 부채꼴로 지나간다 */
