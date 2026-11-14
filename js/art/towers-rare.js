@@ -191,6 +191,22 @@
   const FROSTED = ['#f6fcff', '#d2ebf8', '#9cc6e0'];
   const ICE = ART.ice;
   const ICI = [-0.5, -0.68, -0.86];
+  /* 얼음 결정 한 덩이: (x, y) 는 뿌리, (dx, dy) 는 뻗는 방향과 길이 */
+  function shard(ctx, x, y, dx, dy, w) {
+    const l = Math.hypot(dx, dy);
+    const nx = (-dy / l) * w;
+    const ny = (dx / l) * w;
+    artPoly(ctx, ICE[1], [x - nx, y - ny, x + dx * 0.55 - nx * 1.2, y + dy * 0.55 - ny * 1.2, x + dx, y + dy, x + dx * 0.55 + nx * 1.2, y + dy * 0.55 + ny * 1.2, x + nx, y + ny]);
+    artPoly(ctx, ICE[0], [x - nx, y - ny, x + dx * 0.55 - nx * 1.2, y + dy * 0.55 - ny * 1.2, x + dx, y + dy, x, y], 0);
+  }
+  /* 꼭대기 테두리에 돋은 얼음 왕관. front = 앞쪽 것만 / 뒤쪽 것만 */
+  function iceCrown(ctx, y, r, front) {
+    for (let k = -2; k <= 2; k++) {
+      const a = (front ? Math.PI / 2 : -Math.PI / 2) + k * 0.6;
+      const x = Math.cos(a) * r;
+      shard(ctx, x, y + Math.sin(a) * r * K + 0.01, Math.cos(a) * 0.07, -0.11 - (k % 2 ? 0 : 0.04), 0.03);
+    }
+  }
   TOWER_ART.icicle = {
     body(ctx, level) {
       const top = ICI[level];
@@ -210,8 +226,18 @@
         const y = top - 0.03 + Math.sin(a) * lip * K;
         artPoly(ctx, ICE[1], [x - 0.025, y, x, y + 0.09 + (k % 2 ? 0 : 0.04), x + 0.025, y], ART.LW * 0.6);
       }
+      if (level >= 1) {
+        /* 탑 어깨에서 자라난 얼음 결정 */
+        const sy = top + 0.2;
+        for (const sgn of [-1, 1]) {
+          shard(ctx, sgn * rAt(sy), sy + 0.03, sgn * 0.2, -0.2, 0.04);
+          shard(ctx, sgn * (rAt(sy) + 0.01), sy + 0.07, sgn * 0.21, -0.03, 0.032);
+          if (level === 2) shard(ctx, sgn * rAt(sy + 0.3), sy + 0.34, sgn * 0.17, -0.12, 0.034);
+        }
+      }
+      if (level === 2) iceCrown(ctx, top - 0.03, lip, false);
       /* 발치의 얼음 조각 */
-      for (const [x, y, hh] of [[-0.36, 0.4, 0.14], [0.36, 0.41, 0.11], [-0.27, 0.43, 0.08]]) {
+      for (const [x, y, hh] of level === 2 ? [[-0.36, 0.4, 0.22], [0.36, 0.41, 0.19], [-0.27, 0.43, 0.12], [0.28, 0.44, 0.1]] : [[-0.36, 0.4, 0.14], [0.36, 0.41, 0.11], [-0.27, 0.43, 0.08]]) {
         artPoly(ctx, ICE[1], [x - 0.04, y, x - 0.01, y - hh, x + 0.04, y]);
         artPoly(ctx, ICE[0], [x - 0.04, y, x - 0.01, y - hh, x - 0.008, y], 0);
       }
@@ -248,6 +274,9 @@
         const y = -h + 0.06 + Math.sin(q) * 0.07;
         artPoly(ctx, ICE[1], [x, y - 0.06, x + 0.025, y, x, y + 0.06, x - 0.025, y], ART.LW * 0.6);
       }
+    },
+    front(ctx, level) {
+      if (level === 2) iceCrown(ctx, ICI[level] - 0.03, 0.2 + 0.04, true);
     },
   };
 

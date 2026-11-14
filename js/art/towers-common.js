@@ -10,6 +10,7 @@
   const R = ART.red;
   const GR = ART.green;
   const TH = ART.thatch;
+  const ST = ART.steel;
   const K = ART.K;
   const H = (type, level) => TOWERS[type].levels[level].h;
 
@@ -164,6 +165,15 @@
 
   /* ───── 가시덫탑: 낮은 돌 작업장 위의 투석 팔이 가시 쇠공을 길에 던져 놓는다 ───── */
   const TRAP = [-0.3, -0.44, -0.6];
+  /* 마루 둘레에 박은 말뚝 울타리. front = 앞쪽 것만 / 뒤쪽 것만 */
+  function stakes(ctx, y, r, front, tones) {
+    for (let k = -2; k <= 2; k++) {
+      const a = (front ? Math.PI / 2 : -Math.PI / 2) + k * 0.62;
+      const x = Math.cos(a) * r;
+      const yy = y + Math.sin(a) * r * K;
+      artPoly(ctx, front ? (k < 0 ? tones[0] : tones[1]) : tones[2], [x - 0.034, yy + 0.02, x - 0.034, yy - 0.07, x, yy - 0.13, x + 0.034, yy - 0.07, x + 0.034, yy + 0.02], ART.LW * 0.8);
+    }
+  }
   TOWER_ART.trap = {
     body(ctx, level) {
       const top = TRAP[level];
@@ -173,8 +183,13 @@
         hoops: level >= 1 ? [[top + 0.1, band, 0.035]] : [],
         door: D,
       });
+      if (level === 2) {
+        /* 가시 쇠공 걸개 */
+        KIT.banner(ctx, 0, top + 0.16, 0.08, 0.27, R, (c, x, y) => spikeBall(c, x, y - 0.01, 0.034));
+      }
       /* 나무 마루 */
       artCylinder(ctx, W, 0, top - 0.04, top + 0.03, 0.3, 0.28, { topFill: W[0] });
+      if (level >= 1) stakes(ctx, top - 0.04, 0.31, false, level === 2 ? [ST[0], ST[1], ST[2]] : W);
       /* 가시 쇠공 더미 */
       spikeBall(ctx, -0.36, 0.37, 0.05);
       spikeBall(ctx, -0.27, 0.4, 0.042);
@@ -198,11 +213,20 @@
       const len = 0.3 * s;
       const tipX = a.fx * Math.sin(lean) * len;
       const tipY = -h + a.fy * Math.sin(lean) * len - Math.cos(lean) * len;
-      artStroke(ctx, W[1], [-a.fx * Math.sin(lean) * 0.08, -h + 0.03 + Math.cos(lean) * 0.03, tipX, tipY], 0.045);
+      const backX = -a.fx * Math.sin(lean) * (level >= 1 ? 0.13 : 0.08);
+      const backY = -h + 0.03 + Math.cos(lean) * (level >= 1 ? 0.07 : 0.03);
+      artStroke(ctx, W[1], [backX, backY, tipX, tipY], 0.045 + level * 0.006);
+      if (level >= 1) {
+        /* 팔 뒤끝의 무게추 */
+        artRect(ctx, level === 2 ? G[1] : I[1], backX - 0.05 * s, backY - 0.01, 0.1 * s, 0.085 * s, 0.014);
+      }
       artCircle(ctx, I[1], 0, -h + 0.01, 0.04, ART.LW * 0.8);
       /* 끝의 바구니와, 아직 던지지 않은 쇠공 */
       artEllipse(ctx, D[1], tipX, tipY, 0.07 * s, 0.045 * s, ART.LW * 0.8);
       if (swing < 0.35) spikeBall(ctx, tipX, tipY - 0.035, 0.04 * s);
+    },
+    front(ctx, level) {
+      if (level >= 1) stakes(ctx, TRAP[level] - 0.04, 0.31, true, level === 2 ? [ST[0], ST[1], ST[2]] : W);
     },
   };
 
@@ -223,18 +247,26 @@
       soot.addColorStop(1, 'rgba(40,24,28,0)');
       ctx.fillStyle = soot;
       ctx.fillRect(-0.19, top, 0.38, 0.26);
-      if (level >= 1) {
+      if (level === 1) {
         /* 벽에 꽂은 작은 횃불 */
         for (const sgn of [-1, 1]) {
           artStroke(ctx, D[1], [sgn * 0.2, -0.02, sgn * 0.3, -0.12], 0.03);
           artCircle(ctx, I[1], sgn * 0.3, -0.13, 0.035, ART.LW * 0.7);
         }
       }
-      if (level === 2) KIT.sign.sun(ctx, 0, top + 0.36, 0.034, G[1]);
-      /* 장작 */
-      for (const [x, y] of [[-0.36, 0.41], [-0.28, 0.42], [-0.32, 0.36]]) {
-        artCircle(ctx, W[1], x, y, 0.04, ART.LW * 0.8);
-        artCircle(ctx, W[0], x, y, 0.022, 0);
+      if (level === 2) {
+        /* 해 걸개와, 양옆 돌기둥 위의 작은 화로 */
+        KIT.banner(ctx, 0, top + 0.26, 0.07, 0.26, R, (c, x, y) => KIT.sign.sun(c, x, y - 0.01, 0.026, G[0]));
+        for (const sgn of [-1, 1]) {
+          artCylinder(ctx, S, sgn * 0.37, 0.1, 0.4, 0.05, 0.062, { topFill: S[0] });
+          artPoly(ctx, G[1], [sgn * 0.37 - 0.075, 0.04, sgn * 0.37 + 0.075, 0.04, sgn * 0.37 + 0.045, 0.11, sgn * 0.37 - 0.045, 0.11]);
+        }
+      } else {
+        /* 장작 */
+        for (const [x, y] of [[-0.36, 0.41], [-0.28, 0.42], [-0.32, 0.36]]) {
+          artCircle(ctx, W[1], x, y, 0.04, ART.LW * 0.8);
+          artCircle(ctx, W[0], x, y, 0.022, 0);
+        }
       }
       /* 화로: 받침과 쇠 대접 */
       const h = H('torch', level);
@@ -248,6 +280,13 @@
       artEllipse(ctx, level === 2 ? G[1] : I[0], 0, -h + 0.02, r + 0.015, (r + 0.015) * K);
       artEllipse(ctx, '#5a1a10', 0, -h + 0.02, r - 0.02, (r - 0.02) * K, ART.LW * 0.7);
       artEllipse(ctx, '#ff9226', 0, -h + 0.025, r - 0.05, (r - 0.05) * K, 0);
+      if (level >= 1) {
+        /* 불을 감싼 쇠 갈퀴 */
+        const c = level === 2 ? G[1] : I[1];
+        const up = 0.18 + level * 0.03;
+        for (const sgn of [-1, 1]) artStroke(ctx, c, artCurve(sgn * r, -h + 0.02, sgn * (r + 0.09), -h - up * 0.5, sgn * (r - 0.03), -h - up, 8), 0.03);
+        artStroke(ctx, c, [0, -h + 0.02 - r * K, 0, -h - up + 0.02], 0.026);
+      }
     },
     top(ctx, level, aim, o) {
       const h = H('torch', level);
@@ -258,8 +297,10 @@
       for (const [dx, hh] of [[-0.07, 0.17], [0.07, 0.15], [0, 0.26]]) {
         KIT.fire(ctx, dx + a.fx * o.recoil * 0.05, -h + 0.03, 0.06 * big, hh * big, t + dx * 9);
       }
-      if (level >= 1) {
+      if (level === 1) {
         for (const sgn of [-1, 1]) KIT.fire(ctx, sgn * 0.3, -0.15, 0.03, 0.09, t + sgn);
+      } else if (level === 2) {
+        for (const sgn of [-1, 1]) KIT.fire(ctx, sgn * 0.37, 0.045, 0.05, 0.16, t + sgn);
       }
       /* 튀는 불티 */
       for (let i = 0; i < 3 + level; i++) {
@@ -399,9 +440,22 @@
         artCircle(ctx, '#2f2a33', x, y + len + 0.01, 0.028, ART.LW * 0.6);
       }
       /* 역청 통 */
-      artBarrel(ctx, -0.35, 0.42, 0.06, 0.14, D, I[1]);
-      artEllipse(ctx, '#2f2a33', -0.35, 0.28, 0.045, 0.014, 0);
-      if (level >= 1) artBarrel(ctx, 0.35, 0.43, 0.055, 0.12, D, level === 2 ? G[1] : I[1]);
+      const tank = (sgn) => {
+        /* 받침다리 위에 올린 역청 통과, 솥으로 이어지는 쇠 대롱 */
+        const x = sgn * 0.37;
+        artStroke(ctx, I[1], artCurve(x, 0.02, sgn * 0.42, top - 0.12, sgn * 0.2, top - 0.02, 8), 0.034);
+        artStroke(ctx, D[0], [x - 0.05, 0.2, x - 0.06, 0.43], 0.03);
+        artStroke(ctx, D[1], [x + 0.05, 0.2, x + 0.06, 0.43], 0.03);
+        artBarrel(ctx, x, 0.22, 0.075, 0.2, D, level === 2 ? G[1] : I[1]);
+        artEllipse(ctx, '#2f2a33', x, 0.02, 0.055, 0.017, 0);
+      };
+      if (level >= 1) tank(1);
+      if (level === 2) {
+        tank(-1);
+      } else {
+        artBarrel(ctx, -0.35, 0.42, 0.06, 0.14, D, I[1]);
+        artEllipse(ctx, '#2f2a33', -0.35, 0.28, 0.045, 0.014, 0);
+      }
       /* 솥을 받치는 테와 솥 */
       artCylinder(ctx, [I[0], I[1], I[2]], 0, top - 0.03, top + 0.04, rAt(top) + 0.03, rAt(top), { topFill: I[2] });
       artEllipse(ctx, '#ff9226', 0, top - 0.025, 0.17, 0.17 * K, 0);

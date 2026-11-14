@@ -101,6 +101,23 @@
         artCircle(ctx, BRASS[2], 0, y + rAt(y) * K, 0.045, ART.LW * 0.8);
         artCircle(ctx, glass[i % 5], 0, y + rAt(y) * K, 0.028, 0);
       }
+      /* 빛을 모으는 거울 (2단부터, 3단은 두 층) */
+      const mirror = (sgn, y) => {
+        const x = sgn * (rAt(y) + 0.13);
+        artStroke(ctx, BRASS[1], [sgn * rAt(y), y + 0.04, x, y - 0.02], 0.03);
+        artEllipse(ctx, BRASS[1], x, y - 0.07, 0.062, 0.088, ART.LW, sgn * 0.35);
+        artEllipse(ctx, '#bfeaff', x, y - 0.07, 0.042, 0.066, 0, sgn * 0.35);
+        artEllipse(ctx, '#ffffff', x - 0.012, y - 0.09, 0.014, 0.026, 0, sgn * 0.35);
+      };
+      if (level >= 1) for (const sgn of [-1, 1]) mirror(sgn, top + 0.3);
+      if (level === 2) {
+        for (const sgn of [-1, 1]) mirror(sgn, top + 0.62);
+        /* 발치의 빛깔 수정 */
+        for (const [x, y, hh, c] of [[-0.38, 0.41, 0.2, 0], [-0.29, 0.44, 0.12, 2], [0.38, 0.42, 0.18, 3], [0.29, 0.45, 0.11, 4]]) {
+          artPoly(ctx, glass[c], [x - 0.04, y, x - 0.01, y - hh, x + 0.04, y]);
+          artPoly(ctx, '#ffffff', [x - 0.03, y - 0.01, x - 0.012, y - hh * 0.8, x - 0.008, y - 0.01], 0);
+        }
+      }
       /* 프리즘을 받치는 놋쇠 팔 */
       artCylinder(ctx, [BRASS[0], BRASS[1], BRASS[2]], 0, top - 0.04, top + 0.04, 0.23, 0.19, { topFill: BRASS[2] });
       for (const sgn of [-1, 1]) {
