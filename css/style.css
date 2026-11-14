@@ -632,7 +632,12 @@ button { font: inherit; color: inherit; }
 .inv-left { display: grid; gap: 8px; min-width: 0; }
 .inv-left .label { margin: 4px 0 0; white-space: normal; font-size: clamp(12px, 0.95vw, 15px); }
 .slots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: clamp(6px, 0.8vw, 12px); }
-.inv-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: clamp(6px, 0.8vw, 12px); }
+/* 가진 탑이 많으므로 편성 칸보다 작은 카드로 촘촘히 늘어놓는다 */
+.inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(64px, 7.4vw, 124px), 1fr)); gap: clamp(5px, 0.6vw, 10px); }
+.inv-grid .tcard strong { font-size: clamp(11px, 0.95vw, 15px); }
+.inv-grid .tcard .rar { font-size: clamp(9px, 0.7vw, 11px); }
+.slots .tcard { max-width: 190px; }
+.slots { max-width: 980px; }
 .tcard {
   position: relative;
   min-width: 0;

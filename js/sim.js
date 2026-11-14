@@ -144,7 +144,8 @@ class Game {
     this.towers = [];
     this.enemies = [];
     this.shots = [];
-    this.strikes = []; // 화염파의 불기둥·유성: 예고된 자리에 잠시 뒤 터진다
+    this.strikes = []; // 예고된 자리에 잠시 뒤 터지는 공격(불기둥·유성·낙뢰)
+    this.traps = []; // 길 위에 깔린 덫
     this.queue = [];
     this.qi = 0;
     this.waveTime = 0;
@@ -257,6 +258,11 @@ class Game {
       meteorT: 6.5, // 화염파: 다음 유성우까지
       sweep: null, // 화염파: 지금 휘두르고 있는 광선 { a0, a1, a, t, dur, hit }
       flip: false,
+      amp: 1, // 사령탑 곁에서 느는 피해
+      haste: 1, // 북탑 곁에서 느는 연사
+      reach: 1, // 감시탑 곁에서 느는 사거리
+      range: def.levels[0].range || 0,
+      forks: null, // 프리즘탑: 갈라진 광선이 닿은 적들
       shockT: 1.5, // 화염파: 다음 충격파까지
       wave: null, // 화염파: 퍼져 나가는 충격파 { t, dur, r, hit }
       wavePending: false,
@@ -273,6 +279,7 @@ class Game {
     if (t.lv.every) t.tick = t.lv.every;
     this.towers.push(t);
     this.grid[ty * COLS + tx] = TILE_TOWER;
+    this.recalc();
     return t;
   }
 
@@ -285,6 +292,8 @@ class Game {
   setLevel(t, level) {
     t.level = level;
     t.lv = this.lvOf(t.type, level);
+    t.tickFx = null;
+    this.recalc();
   }
 
   build(type, tx, ty) {
@@ -329,6 +338,8 @@ class Game {
     this.gold += value;
     this.towers.splice(i, 1);
     this.strikes = this.strikes.filter((q) => q.src !== t);
+    this.traps = this.traps.filter((q) => q.src !== t);
+    this.recalc();
     this.grid[t.y * COLS + t.x] = TILE_FREE;
     this.emit('sell', { tower: t, value });
     return true;
@@ -392,7 +403,18 @@ class Game {
       age: 0,
       hitT: 0,
       poison: 0,
-      kb: 0, // 충격파에 밀려날 남은 거리
+      kb: 0, // 밀려날 남은 거리
+      stun: 0, // 기절·빙결이 남은 시간
+      stunGuard: 0, // 다시 기절하지 않는 시간
+      kbGuard: 0, // 다시 밀려나지 않는 시간
+      chill: 0, // 맞아서 걸린 둔화와 그 남은 시간
+      chillT: 0,
+      shred: 0, // 깎인 갑옷과 그 남은 시간
+      shredT: 0,
+      curse: 0, // 저주탑 곁에서 깎이는 갑옷
+      mark: 0, // 표식: 받는 피해가 느는 정도와 남은 시간
+      markT: 0,
+      dotKind: 'poison',
       poisonT: 0,
       poisonSrc: null,
     };
@@ -422,12 +444,14 @@ class Game {
       if (this.phase === 'lost') return;
       this.updateTowers(dt);
       this.updateStrikes(dt);
+      this.updateTraps(dt);
     } else if (this.phase === 'build') {
       for (const t of this.towers) {
         t.recoil = Math.max(0, t.recoil - dt * 4);
         t.flash = Math.max(0, t.flash - dt * 3);
         t.cast = Math.max(0, t.cast - dt);
         t.sweep = null;
+        t.forks = null;
         t.wave = null;
         t.wavePending = false;
         t.idle = true;
@@ -443,16 +467,22 @@ class Game {
 
   applyAuras() {
     const enemies = this.enemies;
-    for (const e of enemies) { e.slow = 0; e.vuln = 1; }
+    for (const e of enemies) {
+      e.slow = e.chillT > 0 ? e.chill : 0;
+      e.vuln = e.markT > 0 ? 1 + e.mark : 1;
+      e.curse = 0;
+    }
     for (const t of this.towers) {
-      if (t.def.kind !== 'aura') continue;
-      const r2 = t.lv.range * t.lv.range;
+      if (t.def.mech !== 'aura') continue;
+      const lv = t.lv;
+      const r2 = lv.range * lv.range;
       for (const e of enemies) {
         const dx = e.x - t.cx;
         const dy = e.y - t.cy;
         if (dx * dx + dy * dy > r2) continue;
-        if (t.lv.slow > e.slow) e.slow = t.lv.slow;
-        if (t.lv.vuln) e.vuln = 1 + t.lv.vuln;
+        if (lv.slow > e.slow) e.slow = lv.slow;
+        if (lv.vuln && 1 + lv.vuln > e.vuln) e.vuln = 1 + lv.vuln;
+        if (lv.shred > e.curse) e.curse = lv.shred;
       }
     }
   }
@@ -462,6 +492,14 @@ class Game {
       if (!e.alive) continue;
       e.age += dt;
       if (e.hitT > 0) e.hitT -= dt;
+      if (e.chillT > 0) e.chillT -= dt;
+      if (e.stunGuard > 0) e.stunGuard -= dt;
+      if (e.kbGuard > 0) e.kbGuard -= dt;
+      if (e.markT > 0) e.markT -= dt;
+      if (e.shredT > 0) {
+        e.shredT -= dt;
+        if (e.shredT <= 0) e.shred = 0;
+      }
       if (e.poisonT > 0) {
         e.poisonT -= dt;
         this.hit(e, e.poison * dt, 'magic', e.poisonSrc, true);
@@ -475,6 +513,12 @@ class Game {
         e.dist = Math.max(0, e.dist - step);
         e.cur = 0;
         this.place(e);
+        continue;
+      }
+      if (e.stun > 0) {
+        /* 기절·빙결: 그 자리에 멈춰 선다 */
+        e.stun -= dt;
+        e.cur = 0;
         continue;
       }
       const slow = e.boss ? e.slow * 0.5 : e.slow;
@@ -497,8 +541,11 @@ class Game {
     }
   }
 
+  /* ───── 탑 ───── */
+
   pickTarget(t, skip) {
-    const r2 = t.lv.range * t.lv.range;
+    const r2 = t.range * t.range;
+    const min2 = t.lv.minRange ? t.lv.minRange * t.lv.minRange : 0;
     let best = null;
     let bestScore = -Infinity;
     for (const e of this.enemies) {
@@ -506,7 +553,7 @@ class Game {
       const dx = e.x - t.cx;
       const dy = e.y - t.cy;
       const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
+      if (d2 > r2 || d2 < min2) continue;
       let score;
       switch (t.mode) {
         case 'last': score = e.path.length - e.dist; break;
@@ -519,15 +566,44 @@ class Game {
     return best;
   }
 
+  /* 주변 탑을 돕는 탑(감시탑·북탑·사령탑)의 효과를 다시 셈한다. 같은 종류는 겹치지 않고 가장 센 것만 든다. */
+  recalc() {
+    for (const t of this.towers) { t.amp = 1; t.haste = 1; t.reach = 1; }
+    for (const b of this.towers) {
+      if (b.def.mech !== 'buff') continue;
+      const r2 = b.lv.range * b.lv.range;
+      for (const t of this.towers) {
+        if (t.def.mech === 'buff' || (t.cx - b.cx) ** 2 + (t.cy - b.cy) ** 2 > r2) continue;
+        if (b.lv.amp) t.amp = Math.max(t.amp, 1 + b.lv.amp);
+        if (b.lv.haste) t.haste = Math.max(t.haste, 1 + b.lv.haste);
+        if (b.lv.reach) t.reach = Math.max(t.reach, 1 + b.lv.reach);
+      }
+    }
+    for (const t of this.towers) {
+      const fixed = t.def.mech === 'buff' || t.def.mech === 'aura' || t.def.mech === 'nova';
+      t.range = (t.lv.range || 0) * (fixed ? 1 : t.reach);
+      t.spots = null;
+    }
+  }
+
   updateTowers(dt) {
     for (const t of this.towers) {
       t.recoil = Math.max(0, t.recoil - dt * 4);
       t.flash = Math.max(0, t.flash - dt * 3);
-      if (t.def.kind === 'aura') continue;
-      if (t.type === 'mine') { this.runMine(t, dt); continue; }
-      if (t.type === 'flame') { this.runFlame(t, dt); continue; }
-      if (t.type === 'laser') { this.runLaser(t, dt); continue; }
-      if (t.type === 'lord') { this.runLord(t, dt); continue; }
+      const lv = t.lv;
+      switch (t.def.mech) {
+        case 'buff': continue;
+        case 'aura':
+          if (lv.dps) this.runThorns(t, dt);
+          if (lv.every) this.runNova(t, dt);
+          continue;
+        case 'income': this.runMine(t, dt); continue;
+        case 'cone': this.runFlame(t, dt); continue;
+        case 'beam': this.runLaser(t, dt); continue;
+        case 'nova': this.runNova(t, dt); continue;
+        case 'trap': this.runTrap(t, dt); continue;
+        case 'lord': this.runLord(t, dt); continue;
+      }
       if (t.burst > 0) {
         t.burstT -= dt;
         while (t.burst > 0 && t.burstT <= 0) {
@@ -542,7 +618,7 @@ class Game {
       if (!target) continue;
       t.aimX = target.x;
       t.aimY = target.y;
-      t.cd = t.lv.cd;
+      t.cd = lv.cd / t.haste;
       t.recoil = 1;
       this.fire(t, target);
     }
@@ -550,18 +626,23 @@ class Game {
 
   fire(t, target) {
     const lv = t.lv;
-    switch (t.type) {
-      case 'crossbow': {
-        const d0 = Math.max(0.3, Math.hypot(target.x - t.cx, target.y - t.cy));
-        this.shots.push({
-          kind: 'arrow', x: t.cx, y: t.cy, vx: 1, vy: 0, target, tx: target.x, ty: target.y,
-          speed: 13, dmg: lv.dmg, src: t, h: lv.h, h0: lv.h, d0, slope: lv.h / d0,
-        });
-        this.emit('shoot', { kind: 'arrow', x: t.cx, y: t.cy, h: lv.h });
+    const skin = t.def.skin;
+    switch (t.def.mech) {
+      case 'bolt': {
+        /* 날아가 맞는 탄. multi 가 있으면 서로 다른 적 여럿을 한꺼번에 노린다. */
+        const list = [target];
+        while (list.length < (lv.multi || 1)) {
+          const e = this.pickTarget(t, list);
+          if (!e) break;
+          list.push(e);
+        }
+        for (const e of list) this.launch(t, e, 1, lv.bounce || 0, null);
+        this.emit('shoot', { kind: 'bolt', skin, x: t.cx, y: t.cy, h: lv.h });
         break;
       }
-      case 'cannon': {
-        const speed = 7;
+      case 'shell': {
+        /* 포물선으로 날아가 떨어진 자리에서 터진다. 적이 갈 곳을 내다보고 쏜다. */
+        const speed = t.def.speed || 7;
         const p = {};
         let dur = Math.max(0.25, Math.hypot(target.x - t.cx, target.y - t.cy) / speed);
         target.path.at(Math.min(target.path.length, target.dist + (target.cur || target.speed) * dur), p);
@@ -569,13 +650,13 @@ class Game {
         t.aimX = p.x;
         t.aimY = p.y;
         this.shots.push({
-          kind: 'shell', x: t.cx, y: t.cy, x0: t.cx, y0: t.cy, tx: p.x, ty: p.y, h: lv.h, h0: lv.h,
-          t: 0, dur, dmg: lv.dmg, splash: lv.splash, src: t,
+          kind: 'shell', skin, x: t.cx, y: t.cy, x0: t.cx, y0: t.cy, tx: p.x, ty: p.y, h: lv.h, h0: lv.h,
+          t: 0, dur, fx: lv, splash: lv.splash, src: t,
         });
-        this.emit('shoot', { kind: 'shell', x: t.cx, y: t.cy, h: lv.h });
+        this.emit('shoot', { kind: 'shell', skin, x: t.cx, y: t.cy, h: lv.h });
         break;
       }
-      case 'rocket': {
+      case 'rockets': {
         const list = [target];
         while (list.length < lv.rockets) {
           const e = this.pickTarget(t, list);
@@ -585,29 +666,40 @@ class Game {
         t.burstList = list;
         t.burst = lv.rockets;
         t.burstT = 0;
-        this.emit('shoot', { kind: 'volley', x: t.cx, y: t.cy, h: lv.h });
+        this.emit('shoot', { kind: 'volley', skin, x: t.cx, y: t.cy, h: lv.h });
         break;
       }
-      case 'poison': {
-        const speed = 6;
-        const p = {};
-        let dur = Math.max(0.3, Math.hypot(target.x - t.cx, target.y - t.cy) / speed);
-        target.path.at(Math.min(target.path.length, target.dist + (target.cur || target.speed) * dur), p);
-        dur = Math.max(0.3, Math.hypot(p.x - t.cx, p.y - t.cy) / speed);
-        t.aimX = p.x;
-        t.aimY = p.y;
-        this.shots.push({
-          kind: 'vial', x: t.cx, y: t.cy, x0: t.cx, y0: t.cy, tx: p.x, ty: p.y, h: lv.h, h0: lv.h,
-          t: 0, dur, dmg: lv.dmg, dot: lv.dot, splash: lv.splash, src: t,
-        });
-        this.emit('shoot', { kind: 'vial', x: t.cx, y: t.cy, h: lv.h });
+      case 'snipe': {
+        let tx = target.x;
+        let ty = target.y;
+        if (t.def.line) {
+          /* 일직선으로 꿰뚫는다: 겨눈 적 쪽으로 사거리 끝까지, 그 선 위의 적을 앞에서부터 through 마리 */
+          const a = Math.atan2(target.y - t.cy, target.x - t.cx);
+          const ux = Math.cos(a);
+          const uy = Math.sin(a);
+          const hits = [];
+          for (const e of this.enemies) {
+            if (!e.alive) continue;
+            const dx = e.x - t.cx;
+            const dy = e.y - t.cy;
+            const along = dx * ux + dy * uy;
+            if (along < 0 || along > t.range + 0.2) continue;
+            if (Math.abs(dx * uy - dy * ux) > LINE_HALF + e.r * 0.5) continue;
+            hits.push([along, e]);
+          }
+          hits.sort((p, q) => p[0] - q[0]);
+          const n = Math.min(hits.length, lv.through || 99);
+          for (let i = 0; i < n; i++) this.strike(hits[i][1], t, lv, 1);
+          const reach = lv.through && hits.length >= lv.through ? hits[n - 1][0] + 0.3 : t.range;
+          tx = t.cx + ux * reach;
+          ty = t.cy + uy * reach;
+        } else {
+          this.strike(target, t, lv, 1);
+        }
+        this.emit('shoot', { kind: 'snipe', skin, x: t.cx, y: t.cy, h: lv.h, tx, ty });
         break;
       }
-      case 'sniper':
-        this.hit(target, lv.dmg, 'phys', t);
-        this.emit('shoot', { kind: 'snipe', x: t.cx, y: t.cy, h: lv.h, tx: target.x, ty: target.y });
-        break;
-      case 'tesla': {
+      case 'chain': {
         const chain = [target];
         let cur = target;
         while (chain.length < lv.chain) {
@@ -623,17 +715,36 @@ class Game {
           cur = next;
         }
         const pts = [{ x: t.cx, y: t.cy, h: lv.h }];
-        let dmg = lv.dmg;
+        let k = 1;
         for (const e of chain) {
           pts.push({ x: e.x, y: e.y });
-          this.hit(e, dmg, 'magic', t);
-          dmg *= CHAIN_FALLOFF;
+          this.strike(e, t, lv, k);
+          k *= CHAIN_FALLOFF;
         }
         t.flash = 1;
         this.emit('bolt', { pts });
         break;
       }
+      case 'strike':
+        /* 하늘에서 떨어지는 공격: 적이 몰린 곳을 고르거나(pick: 'cluster'), 사거리 안의 적들 위로 흩뿌린다 */
+        t.flash = 1;
+        if (t.def.pick === 'cluster') this.clusterStrikes(t, lv.count || 1, lv.splash, lv, lv.delay, skin);
+        else this.rainStrikes(t, lv.count || 1, lv.splash, lv, lv.delay, 0.12, skin);
+        this.emit('shoot', { kind: 'call', skin, x: t.cx, y: t.cy, h: lv.h });
+        break;
     }
+  }
+
+  /* 적을 쫓아가는 탄 하나를 쏜다. from 이 있으면 그 자리에서 튕겨 나간 탄이다. */
+  launch(t, e, mult, bounce, from) {
+    const x = from ? from.x : t.cx;
+    const y = from ? from.y : t.cy;
+    const h = from ? 0.2 : t.lv.h;
+    const d0 = Math.max(0.3, Math.hypot(e.x - x, e.y - y));
+    this.shots.push({
+      kind: 'bolt', skin: t.def.skin, x, y, vx: 1, vy: 0, target: e, tx: e.x, ty: e.y,
+      speed: t.def.speed || 13, mult, bounce, seen: from ? from.seen : [e], fx: t.lv, src: t, h, h0: h, d0, slope: h / d0,
+    });
   }
 
   fireRocket(t) {
@@ -652,18 +763,22 @@ class Game {
     t.recoil = 1;
     const d0 = Math.max(0.3, Math.hypot(tx - t.cx, ty - t.cy));
     this.shots.push({
-      kind: 'rocket', x: t.cx, y: t.cy, vx: Math.cos(a), vy: Math.sin(a), target, tx, ty,
-      speed: 4, life: 0, dmg: lv.dmg, splash: lv.splash, src: t, h: lv.h, h0: lv.h, d0, slope: lv.h / d0,
+      kind: 'rocket', skin: t.def.skin, x: t.cx, y: t.cy, vx: Math.cos(a), vy: Math.sin(a), target, tx, ty,
+      speed: 4, life: 0, fx: lv, splash: lv.splash, src: t, h: lv.h, h0: lv.h, d0, slope: lv.h / d0,
     });
-    this.emit('shoot', { kind: 'rocket', x: t.cx, y: t.cy, h: lv.h });
+    this.emit('shoot', { kind: 'rocket', skin: t.def.skin, x: t.cx, y: t.cy, h: lv.h });
   }
 
-  /* quiet: 조금씩 계속 들어가는 피해(독·불길·광선)라서 맞을 때마다 번쩍이지 않는다. */
+  /* 피해를 준다. quiet: 조금씩 계속 들어가는 피해(독·불길·광선)라서 맞을 때마다 번쩍이지 않는다. */
   hit(e, dmg, kind, src, quiet) {
     if (!e.alive) return;
     let d = dmg;
-    if (kind === 'phys') d = (src && src.def.pierce ? d : Math.max(d * 0.15, d - e.armor)) * e.phys;
+    if (kind === 'phys') {
+      const armor = Math.max(0, e.armor - e.shred - e.curse);
+      d = (src && src.def.pierce ? d : Math.max(d * 0.15, d - armor)) * e.phys;
+    }
     d *= e.vuln;
+    if (src) d *= src.amp;
     e.hp -= d;
     if (!quiet) e.hitT = 0.12;
     if (src) src.dealt += d;
@@ -671,17 +786,64 @@ class Game {
       e.alive = false;
       /* 보상의 소수점 아래는 모아 두었다가 1골드가 되면 함께 준다 */
       this.carry += e.reward;
-      const pay = Math.floor(this.carry + 1e-9);
+      let pay = Math.floor(this.carry + 1e-9);
       this.carry -= pay;
+      if (src && src.lv.bounty) pay += src.lv.bounty;
       this.gold += pay;
       this.stats.kills++;
       this.stats.earned += pay;
       if (src) src.kills++;
-      this.emit('kill', { enemy: e, x: e.x, y: e.y, reward: pay });
+      this.emit('kill', { enemy: e, x: e.x, y: e.y, reward: pay, bounty: !!(src && src.lv.bounty) });
     }
   }
 
-  /* 금광: 전투 중에 일정 시간마다 골드를 캔다 */
+  /* 탑의 공격 한 번이 적에게 닿았을 때: 피해와 함께 그 공격에 딸린 효과(fx)를 건다.
+     fx 는 탑의 단계 수치이거나, 그와 같은 모양으로 만든 값이다. */
+  strike(e, src, fx, mult, quiet) {
+    if (!e.alive) return;
+    if (fx.dmg) this.hit(e, fx.dmg * mult, fx.dtype || src.def.dtype || 'phys', src, quiet);
+    if (!e.alive) return;
+    if (fx.slow && src.def.mech !== 'aura') {
+      if (fx.slow >= e.chill || e.chillT <= 0) e.chill = fx.slow;
+      e.chillT = Math.max(e.chillT, fx.slowT || 1.5);
+    }
+    if (fx.stun && e.stunGuard <= 0) {
+      /* 한 번 풀려난 적은 한동안 다시 묶이지 않는다: 기절 탑을 여럿 세워도 적을 영영 세워 둘 수는 없다 */
+      e.stun = fx.stun * (e.boss ? 0.4 : 1);
+      e.stunGuard = e.stun + STUN_GUARD;
+    }
+    if (fx.dot) {
+      if (fx.dot >= e.poison) { e.poison = fx.dot; e.poisonSrc = src; e.dotKind = src.def.dotKind || 'poison'; }
+      e.poisonT = Math.max(e.poisonT, fx.dotT || POISON_TIME);
+    }
+    if (fx.shred && src.def.mech !== 'aura') {
+      e.shred = Math.min(fx.shredMax || fx.shred, e.shred + fx.shred);
+      e.shredT = 3;
+    }
+    if (fx.mark) { e.mark = Math.max(e.mark, fx.mark); e.markT = fx.markT || 4; }
+    if (fx.kb && e.kbGuard <= 0) {
+      e.kb += fx.kb * (e.boss ? 0.35 : 1);
+      e.kbGuard = KB_GUARD;
+    }
+    if (fx.exec && !e.boss && e.hp < e.maxHp * fx.exec) {
+      /* 처형: 체력이 얼마 남지 않은 적은 그 자리에서 끝낸다 */
+      this.emit('exec', { x: e.x, y: e.y, r: e.r });
+      this.hit(e, e.hp + 1, 'magic', src, true);
+    }
+  }
+
+  /* 터지는 공격: 한가운데는 온전한 피해, 가장자리로 갈수록 절반 가까이까지 약해진다. 딸린 효과는 고르게 걸린다. */
+  blast(x, y, radius, src, fx) {
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const reach = radius + e.r * 0.5;
+      const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
+      if (d2 > reach * reach) continue;
+      this.strike(e, src, fx, 1 - (SPLASH_FALLOFF * Math.sqrt(d2)) / reach);
+    }
+  }
+
+  /* 금광·금고: 전투 중에 일정 시간마다 골드를 캔다 */
   runMine(t, dt) {
     t.tick -= dt;
     if (t.tick > 0) return;
@@ -692,7 +854,7 @@ class Game {
     this.emit('income', { tower: t, amount: t.lv.income });
   }
 
-  /* 화염탑: 겨눈 쪽 부채꼴 안의 적을 모두 태운다 */
+  /* 화염탑·용의 탑: 겨눈 쪽 부채꼴 안의 적을 모두 태운다 */
   runFlame(t, dt) {
     if (t.cd > 0) t.cd -= dt;
     if (t.cd > 0) return;
@@ -707,43 +869,207 @@ class Game {
     const ay = target.y - t.cy;
     const al = Math.hypot(ax, ay) || 1;
     const cos = Math.cos(lv.cone);
+    const fx = t.tickFx || (t.tickFx = Object.assign({}, lv, { dmg: lv.dps * FLAME_TICK }));
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const dx = e.x - t.cx;
       const dy = e.y - t.cy;
       const d = Math.hypot(dx, dy);
-      if (d > lv.range + 0.15) continue;
+      if (d > t.range + 0.15) continue;
       if (d > 0.35 && (dx * ax + dy * ay) / (d * al) < cos) continue;
-      this.hit(e, lv.dps * FLAME_TICK, 'magic', t, true);
+      this.strike(e, t, fx, t.haste, true);
     }
-    this.emit('shoot', { kind: 'flame', x: t.cx, y: t.cy, h: lv.h, tx: target.x, ty: target.y, range: lv.range });
+    this.emit('shoot', { kind: 'flame', skin: t.def.skin, x: t.cx, y: t.cy, h: lv.h, tx: target.x, ty: target.y, range: t.range });
   }
 
-  /* 광선탑: 한 적을 계속 비추고, 오래 비출수록 피해가 커진다 */
+  /* 광선탑: 한 적을 계속 비추고, 오래 비출수록 피해가 커진다. 프리즘탑(split)은 커지지 않는 대신 곁의 적에게로 갈라진다. */
   runLaser(t, dt) {
     const lv = t.lv;
     let b = t.beam;
-    if (b && (!b.alive || (b.x - t.cx) ** 2 + (b.y - t.cy) ** 2 > (lv.range + 0.2) ** 2)) b = null;
+    if (b && (!b.alive || (b.x - t.cx) ** 2 + (b.y - t.cy) ** 2 > (t.range + 0.2) ** 2)) b = null;
     if (!b) {
       b = this.pickTarget(t);
       t.beamT = 0;
     }
     t.beam = b;
+    t.forks = null;
     if (!b) return;
     t.beamT += dt;
     t.aimX = b.x;
     t.aimY = b.y;
     t.recoil = 1;
-    this.hit(b, lv.dps * this.beamPower(t) * dt, 'magic', t, true);
+    const dmg = lv.dps * this.beamPower(t) * dt * t.haste;
+    this.hit(b, dmg, 'magic', t, true);
+    if (lv.split) {
+      /* 가까운 적들에게로 갈라진 광선 */
+      const forks = [];
+      const near = PRISM_RANGE * PRISM_RANGE;
+      for (const e of this.enemies) {
+        if (!e.alive || e === b || (e.x - b.x) ** 2 + (e.y - b.y) ** 2 > near) continue;
+        forks.push(e);
+        if (forks.length >= lv.split) break;
+      }
+      for (const e of forks) this.hit(e, dmg * PRISM_SHARE, 'magic', t, true);
+      t.forks = forks;
+    }
     t.beamAcc -= dt;
     if (t.beamAcc <= 0) {
       t.beamAcc = 0.3;
-      this.emit('shoot', { kind: 'beam', x: t.cx, y: t.cy, h: lv.h });
+      this.emit('shoot', { kind: 'beam', skin: t.def.skin, x: t.cx, y: t.cy, h: lv.h });
     }
     if (!b.alive) t.beam = null;
   }
 
-  /* 화염파: 두 손에서 뿜는 굵은 광선을 부채꼴로 휘둘러 지나간 자리의 적을 모두 태운다.
+  beamPower(t) {
+    return t.lv.split ? 1 : 1 + Math.min(2, t.beamT * BEAM_RAMP);
+  }
+
+  /* 가시덩굴탑: 사거리 안의 모든 적을 쉬지 않고 찌른다 */
+  runThorns(t, dt) {
+    const r2 = t.range * t.range;
+    const dmg = t.lv.dps * dt * t.haste;
+    let any = false;
+    for (const e of this.enemies) {
+      if (!e.alive || (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 > r2) continue;
+      this.hit(e, dmg, t.def.dtype || 'magic', t, true);
+      any = true;
+    }
+    if (any) t.recoil = 1;
+  }
+
+  /* 종탑·빙하탑·지진탑·중력탑·시계탑: 적이 사거리 안에 들어와 있으면 때맞춰 탑 둘레로 고리를 퍼뜨린다 */
+  runNova(t, dt) {
+    const lv = t.lv;
+    if (t.wave) this.spread(t, dt);
+    if (t.cd > 0) t.cd -= dt;
+    if (t.cd > 0) return;
+    const near = (lv.range * 0.9) ** 2;
+    if (!this.enemies.some((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= near)) return;
+    t.cd = lv.every / t.haste;
+    t.recoil = 1;
+    t.flash = 1;
+    t.wave = { t: 0, dur: NOVA_TIME, r: lv.range, now: 0, hit: [], fx: lv };
+    this.emit('nova', { skin: t.def.skin, x: t.cx, y: t.cy, r: lv.range });
+  }
+
+  /* 퍼져 나가는 고리가 닿은 적에게 효과를 건다 */
+  spread(t, dt) {
+    const w = t.wave;
+    w.t += dt;
+    const k = Math.min(1, w.t / w.dur);
+    w.now = w.r * (1 - (1 - k) * (1 - k));
+    for (const e of this.enemies) {
+      if (!e.alive || w.hit.includes(e)) continue;
+      if (Math.hypot(e.x - t.cx, e.y - t.cy) > w.now + e.r * 0.5) continue;
+      w.hit.push(e);
+      this.strike(e, t, w.fx, 1);
+      this.emit('sear', { skin: t.def.skin, x: e.x, y: e.y, r: e.r });
+    }
+    if (k >= 1) t.wave = null;
+  }
+
+  /* 가시덫탑: 사거리 안의 길 위에 덫을 깔아 둔다. 덫은 밟은 적과 그 둘레를 다치게 한다. */
+  runTrap(t, dt) {
+    const lv = t.lv;
+    if (t.cd > 0) t.cd -= dt;
+    if (t.cd > 0) return;
+    let mine = 0;
+    for (const q of this.traps) if (q.src === t) mine++;
+    if (mine >= lv.traps) return;
+    if (!t.spots) {
+      const r2 = t.range * t.range;
+      t.spots = this.samples.filter((s) => (s.x - t.cx) ** 2 + (s.y - t.cy) ** 2 <= r2);
+    }
+    if (!t.spots.length) return;
+    for (let tries = 0; tries < 8; tries++) {
+      const s = t.spots[(this.rand() * t.spots.length) | 0];
+      if (this.traps.some((q) => (q.x - s.x) ** 2 + (q.y - s.y) ** 2 < 0.3)) continue;
+      this.traps.push({ x: s.x, y: s.y, age: 0, src: t, fx: lv, r: lv.splash, seed: this.rand() });
+      t.cd = lv.cd / t.haste;
+      t.recoil = 1;
+      t.aimX = s.x;
+      t.aimY = s.y;
+      this.emit('shoot', { kind: 'trap', skin: t.def.skin, x: t.cx, y: t.cy, h: lv.h, tx: s.x, ty: s.y });
+      return;
+    }
+  }
+
+  updateTraps(dt) {
+    const list = this.traps;
+    if (!list.length) return;
+    let sprung = false;
+    for (const q of list) {
+      q.age += dt;
+      if (q.age < TRAP_ARM) continue;
+      for (const e of this.enemies) {
+        if (!e.alive || (e.x - q.x) ** 2 + (e.y - q.y) ** 2 > (0.3 + e.r * 0.5) ** 2) continue;
+        this.blast(q.x, q.y, q.r, q.src, q.fx);
+        this.emit('explode', { kind: 'trap', x: q.x, y: q.y, r: q.r });
+        q.dead = true;
+        sprung = true;
+        break;
+      }
+    }
+    if (sprung) this.traps = list.filter((q) => !q.dead);
+  }
+
+  /* 적이 가장 많이 몰린 자리 n 곳에, 잠시 뒤 터지는 공격을 예고한다 */
+  clusterStrikes(t, n, radius, fx, delay, kind) {
+    const r2 = t.range * t.range;
+    const near = radius * radius;
+    const taken = [];
+    for (let i = 0; i < n; i++) {
+      let best = null;
+      let bestN = 0;
+      for (const e of this.enemies) {
+        if (!e.alive || (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 > r2) continue;
+        if (taken.some((q) => (q.x - e.x) ** 2 + (q.y - e.y) ** 2 < 1.6)) continue;
+        let c = 0;
+        for (const o of this.enemies) {
+          if (o.alive && (o.x - e.x) ** 2 + (o.y - e.y) ** 2 <= near) c += o.boss ? 4 : 1;
+        }
+        if (c > bestN) { bestN = c; best = e; }
+      }
+      if (!best) break;
+      const wait = delay + i * 0.16;
+      const p = {};
+      best.path.at(Math.min(best.path.length, best.dist + (best.cur || best.speed) * wait), p);
+      taken.push({ x: best.x, y: best.y });
+      this.strikes.push({ kind, x: p.x, y: p.y, t: 0, delay: wait, r: radius, fx, src: t, seed: this.rand() });
+    }
+  }
+
+  /* 사거리 안의 적들 가운데 아무나 골라 그 머리 위로 n 번 떨군다 */
+  rainStrikes(t, n, radius, fx, delay, gap, kind) {
+    const r2 = (t.range + 0.4) ** 2;
+    const pool = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2);
+    for (let i = 0; i < n && pool.length; i++) {
+      const e = pool[(this.rand() * pool.length) | 0];
+      const wait = delay + i * gap;
+      const p = {};
+      e.path.at(Math.min(e.path.length, e.dist + (e.cur || e.speed) * wait), p);
+      this.strikes.push({
+        kind, x: p.x + (this.rand() - 0.5) * 0.3, y: p.y + (this.rand() - 0.5) * 0.3,
+        t: 0, delay: wait, r: radius, fx, src: t, seed: this.rand(),
+      });
+    }
+  }
+
+  /* 예고된 자리에 시간이 되면 터지는 공격(불기둥·유성·낙뢰) */
+  updateStrikes(dt) {
+    const list = this.strikes;
+    if (!list.length) return;
+    for (const s of list) {
+      s.t += dt;
+      if (s.t < s.delay) continue;
+      this.blast(s.x, s.y, s.r, s.src, s.fx);
+      this.emit('burst', { kind: s.kind, x: s.x, y: s.y, r: s.r });
+    }
+    this.strikes = list.filter((s) => s.t < s.delay);
+  }
+
+  /* ───── 화염파(영웅) ─────
+     두 손에서 뿜는 굵은 광선을 부채꼴로 휘둘러 지나간 자리의 적을 모두 태운다.
      적이 가까이 오면 발을 굴러 충격파로 태우며 밀어내고,
      2단부터는 불기둥을 솟구치게 하고, 3단에서는 유성우를 떨군다. */
   runLord(t, dt) {
@@ -756,10 +1082,10 @@ class Game {
     /* 충격파: 움츠렸다가 발을 구르는 순간 퍼져 나가기 시작한다 */
     if (t.wavePending && t.cast <= t.castDur * LORD_SHOCK_AT) {
       t.wavePending = false;
-      t.wave = { t: 0, dur: LORD_SHOCK_TIME, r: lv.shockR, hit: [] };
+      t.wave = { t: 0, dur: LORD_SHOCK_TIME, r: lv.shockR, now: 0, hit: [], fx: { dmg: lv.shock, dtype: 'magic', kb: lv.push } };
       this.emit('burst', { kind: 'shock', x: t.cx, y: t.cy, r: lv.shockR });
     }
-    if (t.wave) this.shockLord(t, dt);
+    if (t.wave) this.spread(t, dt);
     if (t.sweep) { this.sweepLord(t, dt); return; }
     const target = this.pickTarget(t);
     t.idle = !target;
@@ -782,13 +1108,15 @@ class Game {
     if (lv.meteors && t.meteorT <= 0) {
       t.meteorT = LORD_METEOR_EVERY;
       this.lordGesture(t, 'meteor', 1.3);
-      this.lordMeteors(t);
+      this.rainStrikes(t, lv.meteors, LORD_METEOR_R, { dmg: lv.meteor, dtype: 'magic' }, LORD_METEOR_DELAY, 0.17, 'meteor');
+      this.emit('cast', { kind: 'meteor', tower: t });
       return;
     }
     if (lv.pillar && t.pillarT <= 0) {
       t.pillarT = LORD_PILLAR_EVERY;
       this.lordGesture(t, 'pillar', 0.75);
-      this.lordPillars(t);
+      this.clusterStrikes(t, lv.pillars || 1, LORD_PILLAR_R, { dmg: lv.pillar, dtype: 'magic' }, LORD_PILLAR_DELAY, 'pillar');
+      this.emit('cast', { kind: 'pillar', tower: t });
       return;
     }
     /* 겨눈 적을 한가운데 두고, 번갈아 왼쪽·오른쪽에서부터 휘두른다 */
@@ -797,12 +1125,12 @@ class Game {
     if (t.cd > 0) {
       if (t.cd < 0.5) {
         /* 쏘기 직전에는 광선이 시작될 쪽을 미리 겨눈다 */
-        t.aimX = t.cx + Math.cos(mid - half) * lv.range;
-        t.aimY = t.cy + Math.sin(mid - half) * lv.range;
+        t.aimX = t.cx + Math.cos(mid - half) * t.range;
+        t.aimY = t.cy + Math.sin(mid - half) * t.range;
       }
       return;
     }
-    t.cd = lv.cd;
+    t.cd = lv.cd / t.haste;
     t.flip = !t.flip;
     t.sweep = { a0: mid - half, a1: mid + half, a: mid - half, t: 0, dur: LORD_SWEEP, hit: [] };
     this.emit('shoot', { kind: 'lord', tower: t });
@@ -817,71 +1145,6 @@ class Game {
     t.cd = Math.max(t.cd, dur * 0.8);
   }
 
-  /* 불기둥: 적이 가장 많이 몰린 자리 밑에서 잠시 뒤 불길이 솟는다 */
-  lordPillars(t) {
-    const lv = t.lv;
-    const r2 = lv.range * lv.range;
-    const near = LORD_PILLAR_R * LORD_PILLAR_R;
-    const taken = [];
-    for (let i = 0; i < (lv.pillars || 1); i++) {
-      let best = null;
-      let bestN = 0;
-      for (const e of this.enemies) {
-        if (!e.alive || (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 > r2) continue;
-        if (taken.some((q) => (q.x - e.x) ** 2 + (q.y - e.y) ** 2 < 1.6)) continue;
-        let n = 0;
-        for (const o of this.enemies) {
-          if (o.alive && (o.x - e.x) ** 2 + (o.y - e.y) ** 2 <= near) n += o.boss ? 4 : 1;
-        }
-        if (n > bestN) { bestN = n; best = e; }
-      }
-      if (!best) break;
-      const delay = LORD_PILLAR_DELAY + i * 0.16;
-      const p = {};
-      best.path.at(Math.min(best.path.length, best.dist + (best.cur || best.speed) * delay), p);
-      taken.push({ x: best.x, y: best.y });
-      this.strikes.push({ kind: 'pillar', x: p.x, y: p.y, t: 0, delay, r: LORD_PILLAR_R, dmg: lv.pillar, src: t, seed: this.rand() });
-    }
-    this.emit('cast', { kind: 'pillar', tower: t });
-  }
-
-  /* 유성우: 사거리 안의 적들 머리 위로 불덩이가 잇달아 떨어진다 */
-  lordMeteors(t) {
-    const lv = t.lv;
-    const r2 = (lv.range + 0.4) ** 2;
-    const pool = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2);
-    for (let i = 0; i < lv.meteors && pool.length; i++) {
-      const e = pool[(this.rand() * pool.length) | 0];
-      const delay = LORD_METEOR_DELAY + i * 0.17;
-      const p = {};
-      e.path.at(Math.min(e.path.length, e.dist + (e.cur || e.speed) * delay), p);
-      this.strikes.push({
-        kind: 'meteor', x: p.x + (this.rand() - 0.5) * 0.3, y: p.y + (this.rand() - 0.5) * 0.3,
-        t: 0, delay, r: LORD_METEOR_R, dmg: lv.meteor, src: t, seed: this.rand(),
-      });
-    }
-    this.emit('cast', { kind: 'meteor', tower: t });
-  }
-
-  /* 예고된 자리에 시간이 되면 터지는 공격(불기둥·유성) */
-  updateStrikes(dt) {
-    const list = this.strikes;
-    if (!list.length) return;
-    for (const s of list) {
-      s.t += dt;
-      if (s.t < s.delay) continue;
-      for (const e of this.enemies) {
-        if (!e.alive) continue;
-        const reach = s.r + e.r * 0.5;
-        const d2 = (e.x - s.x) ** 2 + (e.y - s.y) ** 2;
-        if (d2 > reach * reach) continue;
-        this.hit(e, s.dmg * (1 - (SPLASH_FALLOFF * Math.sqrt(d2)) / reach), 'magic', s.src);
-      }
-      this.emit('burst', { kind: s.kind, x: s.x, y: s.y, r: s.r });
-    }
-    this.strikes = list.filter((s) => s.t < s.delay);
-  }
-
   /* 휩쓸기: 광선이 이번 틱에 지나간 각도 안에 든 적을 한 번씩 태운다 */
   sweepLord(t, dt) {
     const s = t.sweep;
@@ -892,8 +1155,8 @@ class Game {
     s.a = s.a0 + (s.a1 - s.a0) * k * k * (3 - 2 * k);
     t.recoil = 1;
     t.flash = 1;
-    t.aimX = t.cx + Math.cos(s.a) * lv.range;
-    t.aimY = t.cy + Math.sin(s.a) * lv.range;
+    t.aimX = t.cx + Math.cos(s.a) * t.range;
+    t.aimY = t.cy + Math.sin(s.a) * t.range;
     const lo = Math.min(prev, s.a);
     const hi = Math.max(prev, s.a);
     const ref = (lo + hi) / 2;
@@ -902,7 +1165,7 @@ class Game {
       const dx = e.x - t.cx;
       const dy = e.y - t.cy;
       const d = Math.hypot(dx, dy);
-      if (d > lv.range + e.r * 0.5) continue;
+      if (d > t.range + e.r * 0.5) continue;
       let ang = Math.atan2(dy, dx);
       while (ang - ref > Math.PI) ang -= Math.PI * 2;
       while (ang - ref < -Math.PI) ang += Math.PI * 2;
@@ -915,55 +1178,9 @@ class Game {
     if (k >= 1) t.sweep = null;
   }
 
-  /* 충격파: 화염파에게서 퍼져 나가는 불 고리가 닿는 적을 태우고 길 뒤쪽으로 밀어낸다 */
-  shockLord(t, dt) {
-    const w = t.wave;
-    const lv = t.lv;
-    w.t += dt;
-    const k = Math.min(1, w.t / w.dur);
-    w.now = w.r * (1 - (1 - k) * (1 - k));
-    for (const e of this.enemies) {
-      if (!e.alive || w.hit.includes(e)) continue;
-      if (Math.hypot(e.x - t.cx, e.y - t.cy) > w.now + e.r * 0.5) continue;
-      w.hit.push(e);
-      this.hit(e, lv.shock, 'magic', t);
-      if (e.alive) e.kb += lv.push * (e.boss ? 0.35 : 1);
-      this.emit('sear', { x: e.x, y: e.y, r: e.r });
-    }
-    if (k >= 1) t.wave = null;
-  }
-
-  beamPower(t) {
-    return 1 + Math.min(2, t.beamT * BEAM_RAMP);
-  }
-
-  /* 독병이 깨진 자리: 조금 다치고, 독이 든다. 독은 겹치지 않고 더 센 쪽으로 새로 든다. */
-  splashPoison(s) {
-    for (const e of this.enemies) {
-      if (!e.alive) continue;
-      const reach = s.splash + e.r * 0.5;
-      if ((e.x - s.tx) ** 2 + (e.y - s.ty) ** 2 > reach * reach) continue;
-      this.hit(e, s.dmg, 'magic', s.src);
-      if (!e.alive) continue;
-      if (s.dot >= e.poison) { e.poison = s.dot; e.poisonSrc = s.src; }
-      e.poisonT = POISON_TIME;
-    }
-  }
-
-  /* 폭발: 한가운데는 온전한 피해, 가장자리로 갈수록 절반 가까이까지 약해진다. */
-  explode(x, y, radius, dmg, src) {
-    for (const e of this.enemies) {
-      if (!e.alive) continue;
-      const reach = radius + e.r * 0.5;
-      const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
-      if (d2 > reach * reach) continue;
-      this.hit(e, dmg * (1 - SPLASH_FALLOFF * Math.sqrt(d2) / reach), 'phys', src);
-    }
-  }
-
   updateShots(dt) {
     for (const s of this.shots) {
-      if (s.kind === 'arrow') {
+      if (s.kind === 'bolt') {
         if (s.target && s.target.alive) { s.tx = s.target.x; s.ty = s.target.y; }
         const dx = s.tx - s.x;
         const dy = s.ty - s.y;
@@ -971,27 +1188,39 @@ class Game {
         const step = s.speed * dt;
         s.h = s.h0 * Math.min(1, d / s.d0);
         if (d <= step + 0.1) {
-          if (s.target && s.target.alive) {
-            this.hit(s.target, s.dmg, 'phys', s.src);
-            this.emit('hit', { kind: 'arrow', x: s.tx, y: s.ty });
-          }
           s.dead = true;
+          if (!s.target || !s.target.alive) continue;
+          this.strike(s.target, s.src, s.fx, s.mult);
+          this.emit('hit', { kind: 'bolt', skin: s.skin, x: s.tx, y: s.ty });
+          if (s.bounce > 0) {
+            /* 가까운 다른 적에게로 튕긴다 */
+            let next = null;
+            let nd = BOUNCE_RANGE * BOUNCE_RANGE;
+            for (const e of this.enemies) {
+              if (!e.alive || s.seen.includes(e)) continue;
+              const q = (e.x - s.tx) ** 2 + (e.y - s.ty) ** 2;
+              if (q < nd) { nd = q; next = e; }
+            }
+            if (next) {
+              s.seen.push(next);
+              this.launch(s.src, next, s.mult * BOUNCE_FALLOFF, s.bounce - 1, { x: s.tx, y: s.ty, seen: s.seen });
+            }
+          }
         } else {
           s.vx = dx / d;
           s.vy = dy / d;
           s.x += s.vx * step;
           s.y += s.vy * step;
         }
-      } else if (s.kind === 'shell' || s.kind === 'vial') {
+      } else if (s.kind === 'shell') {
         s.t += dt;
         const k = Math.min(1, s.t / s.dur);
         s.x = s.x0 + (s.tx - s.x0) * k;
         s.y = s.y0 + (s.ty - s.y0) * k;
         s.h = s.h0 * (1 - k) + Math.sin(k * Math.PI) * (0.35 + s.dur * 0.5);
         if (k >= 1) {
-          if (s.kind === 'vial') this.splashPoison(s);
-          else this.explode(s.tx, s.ty, s.splash, s.dmg, s.src);
-          this.emit('explode', { kind: s.kind, x: s.tx, y: s.ty, r: s.splash });
+          this.blast(s.tx, s.ty, s.splash, s.src, s.fx);
+          this.emit('explode', { kind: 'shell', skin: s.skin, x: s.tx, y: s.ty, r: s.splash });
           s.dead = true;
         }
       } else if (s.kind === 'rocket') {
@@ -1004,8 +1233,8 @@ class Game {
         const step = s.speed * dt;
         s.h = s.h0 * Math.min(1, d / s.d0);
         if (d <= step + 0.15 || s.life > 4) {
-          this.explode(s.x, s.y, s.splash, s.dmg, s.src);
-          this.emit('explode', { kind: 'rocket', x: s.x, y: s.y, r: s.splash });
+          this.blast(s.x, s.y, s.splash, s.src, s.fx);
+          this.emit('explode', { kind: 'rocket', skin: s.skin, x: s.x, y: s.y, r: s.splash });
           s.dead = true;
         } else {
           const want = Math.atan2(dy, dx);
@@ -1035,6 +1264,15 @@ class Game {
 
   endWave() {
     this.strikes.length = 0;
+    /* 황금 금고: 가진 골드에 이자가 붙는다 */
+    for (const t of this.towers) {
+      if (!t.lv.interest) continue;
+      const gain = Math.min(t.lv.cap, Math.floor(this.gold * t.lv.interest));
+      if (gain <= 0) continue;
+      this.gold += gain;
+      this.stats.earned += gain;
+      this.emit('income', { tower: t, amount: gain });
+    }
     const bonus = this.bonusAt(this.wave);
     this.gold += bonus;
     this.stats.earned += bonus;

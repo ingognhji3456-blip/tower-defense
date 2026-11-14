@@ -24,6 +24,33 @@ const POOF = {
   dragon: ['#dc3d2c', '#ff8f6b', '#f4b93a'],
 };
 
+/* 쏘는 즉시 맞는 공격이 남기는 궤적이 보이는 시간(초) */
+const TRACE = { bullet: 0.16, spear: 0.2, tracer: 0.07, rail: 0.32, scythe: 0.26, toss: 0.22 };
+
+/* 탄과 효과의 겉모습: c = 몸 색, hit = 맞았을 때 튀는 불티 색, rgb = 고리·빛의 색 */
+const SKIN = {
+  arrow: { c: '#f3e4bb', hit: ['#ffffff', '#ffe27e'] },
+  ember: { c: '#ff9226', hit: ['#fff1a8', '#ffb347', '#e8552a'], rgb: '255,150,40' },
+  harpoon: { c: '#d8dfea', hit: ['#ffffff', '#a7b2c4'] },
+  shuriken: { c: '#d8dfea', hit: ['#ffffff', '#a7b2c4'] },
+  icicle: { c: '#9cddf8', hit: ['#ecfbff', '#9cddf8', '#52a8dc'], rgb: '156,221,248' },
+  bee: { c: '#f6bd22', hit: ['#fff08a', '#f6bd22'] },
+  orb: { c: '#cba6ff', hit: ['#ffffff', '#cba6ff', '#9a6bea'], rgb: '203,166,255' },
+  shell: { c: '#586275', rgb: '255,170,60', hit: ['#ffe27e', '#ee8530', '#ffffff'] },
+  bomb: { c: '#3a3440', rgb: '255,150,50', hit: ['#ffe27e', '#ee8530', '#ffffff'] },
+  vial: { c: '#8fe04a', rgb: '143,224,74', hit: ['#d6ff8a', '#8fe04a', '#4f9a2a'] },
+  tar: { c: '#2f2a33', rgb: '60,50,58', hit: ['#4a4350', '#2f2a33', '#6b5f4a'] },
+  /* 탑 둘레로 퍼지는 고리 */
+  bell: { rgb: '255,226,126', hit: ['#ffe27e', '#ffffff'] },
+  ice: { rgb: '156,221,248', hit: ['#ecfbff', '#9cddf8'] },
+  quake: { rgb: '176,141,88', hit: ['#c9aa72', '#8d6e3f', '#e3c792'] },
+  void: { rgb: '154,107,234', hit: ['#cba6ff', '#6640b4'] },
+  time: { rgb: '111,159,242', hit: ['#ffffff', '#6f9ff2'] },
+  thorn: { rgb: '63,158,79' },
+  curse: { rgb: '154,107,234' },
+  fire: { rgb: '255,150,40', hit: ['#fff1a8', '#ffb347', '#e8552a'] },
+};
+
 class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -370,26 +397,83 @@ class Renderer {
   onEvent(type, d) {
     switch (type) {
       case 'shoot':
-        if (d.kind === 'shell') this.spark(d.x, d.y, 5, { h: d.h, color: ['#ffffff', '#d5d9e2'], speed: 0.8, life: 0.55, size: 0.08, lift: -0.4, soft: true });
-        else if (d.kind === 'snipe') {
-          this.tracers.push({ x0: d.x, y0: d.y, h: d.h, x1: d.tx, y1: d.ty, life: 0.16, max: 0.16 });
-          this.spark(d.tx, d.ty, 5, { color: ['#ffffff', '#ffe27e'], speed: 2.4, life: 0.22, size: 0.04 });
+        if (d.kind === 'shell' && (d.skin === 'shell' || d.skin === 'bomb')) {
+          this.spark(d.x, d.y, d.skin === 'bomb' ? 8 : 5, { h: d.h, color: ['#ffffff', '#d5d9e2'], speed: 0.8, life: 0.55, size: 0.08, lift: -0.4, soft: true });
+        } else if (d.kind === 'snipe') {
+          this.tracers.push({ x0: d.x, y0: d.y, h: d.h, x1: d.tx, y1: d.ty, skin: d.skin, life: TRACE[d.skin] || 0.16, max: TRACE[d.skin] || 0.16 });
+          if (d.skin === 'rail') this.spark(d.x, d.y, 6, { h: d.h, color: ['#ffffff', '#9cddf8'], speed: 1.6, life: 0.3, size: 0.05 });
+          else if (d.skin !== 'tracer') this.spark(d.tx, d.ty, 5, { color: ['#ffffff', '#ffe27e'], speed: 2.4, life: 0.22, size: 0.04 });
         } else if (d.kind === 'flame') this.flame(d);
+        else if (d.kind === 'trap') this.tracers.push({ x0: d.x, y0: d.y, h: d.h, x1: d.tx, y1: d.ty, skin: 'toss', life: 0.22, max: 0.22 });
         else if (d.kind === 'lord') {
           const tw = d.tower;
           this.rings.push({ x: tw.cx, y: tw.cy + 0.2, r: 0.9, life: 0.3, max: 0.3, color: '255,150,40' });
         }
         break;
-      case 'sear':
-        /* 화염파의 광선에 그을린 적 */
-        this.rings.push({ x: d.x, y: d.y, r: 0.45 + d.r, life: 0.26, max: 0.26, color: '255,150,40' });
-        this.spark(d.x, d.y, 6, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 2.2, life: 0.36, size: 0.07, lift: -0.9 });
+      case 'nova': {
+        /* 탑 둘레로 퍼지는 고리(그림은 drawShockwaves): 시작할 때 탑에서 불티가 튄다 */
+        const sk = SKIN[d.skin] || SKIN.bell;
+        this.spark(d.x, d.y, 10, { color: sk.hit, speed: d.r * 2.2, life: 0.35, size: 0.06, lift: -0.3 });
+        if (d.skin === 'quake' && !this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.1);
+        break;
+      }
+      case 'sear': {
+        /* 고리나 화염파의 광선에 닿은 적 */
+        const sk = SKIN[d.skin] || SKIN.fire;
+        this.rings.push({ x: d.x, y: d.y, r: 0.45 + d.r, life: 0.26, max: 0.26, color: sk.rgb });
+        this.spark(d.x, d.y, 6, { color: sk.hit || ['#ffffff'], speed: 2.2, life: 0.36, size: 0.07, lift: -0.9 });
+        break;
+      }
+      case 'exec':
+        /* 처형 */
+        this.rings.push({ x: d.x, y: d.y, r: 0.6 + d.r, life: 0.4, max: 0.4, color: '60,30,80' });
+        this.spark(d.x, d.y, 10, { color: ['#cba6ff', '#3a2a50', '#ffffff'], speed: 2.4, life: 0.5, size: 0.07, lift: -0.6 });
+        if (!this.clean) this.floaters.push({ x: d.x, y: d.y - d.r - 0.2, text: '처형', color: '#cba6ff', life: 0.9, max: 0.9 });
+        break;
+      case 'income':
+        if (!this.clean) this.floaters.push({ x: d.tower.cx, y: d.tower.cy - d.tower.lv.h - 0.1, text: '+' + d.amount, color: '#ffe27e', life: 1, max: 1 });
+        this.spark(d.tower.cx, d.tower.cy - 0.2, 4, { color: ['#ffe27e', '#fff6cf'], speed: 1, life: 0.5, size: 0.04, lift: -1 });
+        break;
+      case 'hit': {
+        const sk = SKIN[d.skin] || SKIN.arrow;
+        this.spark(d.x, d.y, 3, { color: sk.hit, speed: 1.6, life: 0.2, size: 0.035 });
+        break;
+      }
+      case 'explode': {
+        if (d.kind === 'trap') {
+          this.rings.push({ x: d.x, y: d.y, r: d.r, life: 0.25, max: 0.25, color: '216,223,234' });
+          this.spark(d.x, d.y, 8, { color: ['#d8dfea', '#a7b2c4', '#e3c792'], speed: 2.2, life: 0.3, size: 0.05, lift: -0.6 });
+          break;
+        }
+        if (d.kind === 'rocket') {
+          this.rings.push({ x: d.x, y: d.y, r: d.r, life: 0.32, max: 0.32, color: '255,140,60' });
+          this.spark(d.x, d.y, 5, { color: ['#ffe27e', '#ee8530', '#ffffff'], speed: 2, life: 0.35, size: 0.065 });
+          break;
+        }
+        const sk = SKIN[d.skin] || SKIN.shell;
+        const heavy = d.skin === 'shell' || d.skin === 'bomb';
+        this.rings.push({ x: d.x, y: d.y, r: d.r, life: d.skin === 'tar' ? 0.9 : heavy ? 0.32 : 0.4, max: d.skin === 'tar' ? 0.9 : heavy ? 0.32 : 0.4, color: sk.rgb });
+        this.spark(d.x, d.y, heavy ? (d.skin === 'bomb' ? 18 : 12) : 8, { color: sk.hit, speed: heavy ? 3 : 1.6, life: heavy ? 0.35 : 0.5, size: heavy ? 0.065 : 0.07, lift: heavy ? 0 : -0.4 });
+        if (heavy) this.spark(d.x, d.y, d.skin === 'bomb' ? 8 : 5, { color: ['#8d94a4', '#b9bfcc'], speed: 0.7, life: 0.7, size: 0.12, lift: -0.5, soft: true });
+        if (d.skin === 'bomb' && !this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.08);
+        break;
+      }
+      case 'bolt':
+        this.bolts.push({ pts: d.pts, life: 0.22, max: 0.22 });
+        for (let i = 1; i < d.pts.length; i++) {
+          this.spark(d.pts[i].x, d.pts[i].y, 3, { color: ['#ffffff', '#cba6ff'], speed: 2, life: 0.2, size: 0.04 });
+        }
         break;
       case 'burst':
         if (d.kind === 'shock') {
           /* 발을 구른 자리에서 불티가 사방으로 튄다 (퍼지는 고리는 drawShockwaves 가 그린다) */
           this.spark(d.x, d.y + 0.2, 22, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: d.r * 2.6, life: 0.4, size: 0.075, lift: -0.4 });
           if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.14);
+        } else if (d.kind === 'thunder') {
+          /* 벼락: 하늘에서 그 자리로 내리꽂힌다 */
+          this.columns.push({ kind: 'thunder', x: d.x, y: d.y, r: d.r, life: 0.24, max: 0.24, seed: Math.random() });
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 1.2, life: 0.3, max: 0.3, color: '203,166,255' });
+          this.spark(d.x, d.y, 8, { color: ['#ffffff', '#cba6ff', '#9cddf8'], speed: 2.6, life: 0.3, size: 0.05 });
         } else if (d.kind === 'pillar') {
           this.columns.push({ x: d.x, y: d.y, r: d.r, life: 0.6, max: 0.6 });
           this.rings.push({ x: d.x, y: d.y, r: d.r * 1.25, life: 0.4, max: 0.4, color: '255,150,40' });
@@ -399,31 +483,6 @@ class Renderer {
           this.spark(d.x, d.y, 14, { color: ['#fff1a8', '#ffb347', '#e8552a', '#ffffff'], speed: 3.2, life: 0.4, size: 0.075 });
           this.spark(d.x, d.y, 5, { color: ['#4a4658', '#6b6678'], speed: 0.8, life: 0.75, size: 0.13, lift: -0.5, soft: true });
           if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.1);
-        }
-        break;
-      case 'income':
-        if (!this.clean) this.floaters.push({ x: d.tower.cx, y: d.tower.cy - d.tower.lv.h - 0.1, text: '+' + d.amount, color: '#ffe27e', life: 1, max: 1 });
-        this.spark(d.tower.cx, d.tower.cy - 0.2, 4, { color: ['#ffe27e', '#fff6cf'], speed: 1, life: 0.5, size: 0.04, lift: -1 });
-        break;
-      case 'hit':
-        this.spark(d.x, d.y, 3, { color: ['#ffffff', '#ffe27e'], speed: 1.6, life: 0.2, size: 0.035 });
-        break;
-      case 'explode': {
-        if (d.kind === 'vial') {
-          this.rings.push({ x: d.x, y: d.y, r: d.r, life: 0.4, max: 0.4, color: '143,224,74' });
-          this.spark(d.x, d.y, 8, { color: ['#d6ff8a', '#8fe04a', '#4f9a2a'], speed: 1.6, life: 0.5, size: 0.07, lift: -0.4 });
-          break;
-        }
-        const shell = d.kind === 'shell';
-        this.rings.push({ x: d.x, y: d.y, r: d.r, life: 0.32, max: 0.32, color: shell ? '255,170,60' : '255,140,60' });
-        this.spark(d.x, d.y, shell ? 12 : 5, { color: ['#ffe27e', '#ee8530', '#ffffff'], speed: shell ? 3 : 2, life: 0.35, size: 0.065 });
-        if (shell) this.spark(d.x, d.y, 5, { color: ['#8d94a4', '#b9bfcc'], speed: 0.7, life: 0.7, size: 0.12, lift: -0.5, soft: true });
-        break;
-      }
-      case 'bolt':
-        this.bolts.push({ pts: d.pts, life: 0.22, max: 0.22 });
-        for (let i = 1; i < d.pts.length; i++) {
-          this.spark(d.pts[i].x, d.pts[i].y, 3, { color: ['#ffffff', '#cba6ff'], speed: 2, life: 0.2, size: 0.04 });
         }
         break;
       case 'kill': {
@@ -516,7 +575,7 @@ class Renderer {
     this.drawBeams(ctx, t);
     this.drawSweeps(ctx, t);
     this.drawStrikes(ctx, t, dt);
-    this.drawShots(ctx);
+    this.drawShots(ctx, t);
     this.drawEffects(ctx, dt);
     if (!this.clean) this.drawHealthBars(ctx);
     this.drawSelection(ctx, ui);
@@ -542,22 +601,48 @@ class Renderer {
     }
   }
 
-  /* 서리탑이 뿜는 냉기 */
+  /* 늘 걸려 있는 효과의 범위: 서리탑의 냉기, 가시덩굴, 저주, 시계탑, 그리고 곁의 탑을 돕는 탑들 */
   drawAuras(ctx, t) {
     const { ts, game } = this;
     for (const tw of game.towers) {
-      if (tw.def.kind !== 'aura') continue;
+      const mech = tw.def.mech;
+      if (mech !== 'aura' && mech !== 'buff') continue;
       const px = this.px(tw.cx, tw.cy);
       const py = this.py(tw.cx, tw.cy);
-      ctx.fillStyle = 'rgba(156,221,248,.1)';
+      const rgb = mech === 'buff' ? '255,226,126' : (SKIN[tw.def.skin] || SKIN.ice).rgb;
+      const r = tw.lv.range * ts;
+      ctx.fillStyle = `rgba(${rgb},${mech === 'buff' ? 0.06 : 0.1})`;
       ctx.beginPath();
-      ctx.arc(px, py, tw.lv.range * ts, 0, Math.PI * 2);
+      ctx.arc(px, py, r, 0, Math.PI * 2);
       ctx.fill();
-      const k = (t * 0.45 + tw.id * 0.37) % 1;
-      ctx.strokeStyle = `rgba(236,251,255,${0.75 * (1 - k)})`;
-      ctx.lineWidth = Math.max(1.5, ts * 0.06);
+      const k = (t * (mech === 'buff' ? 0.3 : 0.45) + tw.id * 0.37) % 1;
+      ctx.strokeStyle = `rgba(${rgb},${0.75 * (1 - k)})`;
+      ctx.lineWidth = Math.max(1.5, ts * (mech === 'buff' ? 0.035 : 0.06));
       ctx.beginPath();
-      ctx.arc(px, py, tw.lv.range * ts * (this.reduced ? 1 : k), 0, Math.PI * 2);
+      ctx.arc(px, py, r * (this.reduced ? 1 : k), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    /* 깔아 둔 덫 */
+    for (const q of game.traps || []) {
+      const x = this.px(q.x, q.y);
+      const y = this.py(q.x, q.y);
+      const k = Math.min(1, q.age / 0.3);
+      ctx.fillStyle = 'rgba(22,40,24,.22)';
+      ctx.beginPath();
+      ctx.ellipse(x, y + ts * 0.03, ts * 0.2 * k, ts * 0.09 * k, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = ART.OUT;
+      ctx.lineWidth = Math.max(2, ts * 0.07);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = q.seed * 6.28 + i * 1.571;
+        ctx.moveTo(x, y - ts * 0.03);
+        ctx.lineTo(x + Math.cos(a) * ts * 0.15 * k, y - ts * 0.03 + Math.sin(a) * ts * 0.07 * k - ts * 0.07 * k);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = '#d8dfea';
+      ctx.lineWidth = Math.max(1, ts * 0.03);
       ctx.stroke();
     }
   }
@@ -744,32 +829,58 @@ class Renderer {
     }
   }
 
-  /* 광선탑의 광선: 오래 비출수록 굵고 밝아진다 */
+  /* 광선탑의 광선(오래 비출수록 굵고 밝아진다)과, 프리즘탑의 갈라지는 무지갯빛 광선 */
   drawBeams(ctx, t) {
     const { ts, game } = this;
     ctx.lineCap = 'round';
     for (const tw of game.towers) {
       const b = tw.beam;
-      if (tw.type !== 'laser' || !b || !b.alive) continue;
-      const k = (game.beamPower(tw) - 1) / 2;
+      if (tw.def.mech !== 'beam' || !b || !b.alive) continue;
+      const prism = !!tw.lv.split;
+      const k = prism ? 0.3 : (game.beamPower(tw) - 1) / 2;
       const ax = this.px(tw.cx, tw.cy);
       const ay = this.py(tw.cx, tw.cy) - tw.lv.h * ts;
       const bx = this.px(b.x, b.y);
       const by = this.py(b.x, b.y) - b.r * 0.2 * ts;
       const wob = 0.85 + 0.15 * Math.sin(t * 40);
-      ctx.strokeStyle = `rgba(255,120,50,${0.35 + k * 0.25})`;
-      ctx.lineWidth = ts * (0.16 + k * 0.16) * wob;
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(255,214,120,${0.75 + k * 0.25})`;
-      ctx.lineWidth = ts * (0.08 + k * 0.07) * wob;
-      ctx.stroke();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(1, ts * (0.03 + k * 0.025));
-      ctx.stroke();
-      ctx.fillStyle = `rgba(255,190,90,${0.5 + k * 0.3})`;
+      const [outer, mid] = prism ? ['rgba(154,107,234,.4)', 'rgba(203,236,255,.95)'] : [`rgba(255,120,50,${0.35 + k * 0.25})`, `rgba(255,214,120,${0.75 + k * 0.25})`];
+      const line = (x0, y0, x1, y1, f) => {
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.strokeStyle = outer;
+        ctx.lineWidth = ts * (0.16 + k * 0.16) * wob * f;
+        ctx.stroke();
+        ctx.strokeStyle = mid;
+        ctx.lineWidth = ts * (0.08 + k * 0.07) * wob * f;
+        ctx.stroke();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(1, ts * (0.03 + k * 0.025) * f);
+        ctx.stroke();
+      };
+      line(ax, ay, bx, by, 1);
+      if (prism && tw.forks) {
+        const hues = ['255,120,120', '255,214,120', '143,224,130', '120,190,255'];
+        tw.forks.forEach((e, i) => {
+          if (!e.alive) return;
+          const ex = this.px(e.x, e.y);
+          const ey = this.py(e.x, e.y) - e.r * 0.2 * ts;
+          ctx.beginPath();
+          ctx.moveTo(bx, by);
+          ctx.lineTo(ex, ey);
+          ctx.strokeStyle = `rgba(${hues[i % 4]},.85)`;
+          ctx.lineWidth = ts * 0.085 * wob;
+          ctx.stroke();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = Math.max(1, ts * 0.028);
+          ctx.stroke();
+          ctx.fillStyle = `rgba(${hues[i % 4]},.8)`;
+          ctx.beginPath();
+          ctx.arc(ex, ey, ts * 0.1, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+      ctx.fillStyle = prism ? 'rgba(203,236,255,.7)' : `rgba(255,190,90,${0.5 + k * 0.3})`;
       ctx.beginPath();
       ctx.arc(bx, by, ts * (0.14 + k * 0.12) * wob, 0, Math.PI * 2);
       ctx.fill();
@@ -823,6 +934,7 @@ class Renderer {
     ctx.lineCap = 'round';
     for (const s of game.strikes || []) {
       if (s.kind !== 'meteor') continue;
+      const big = s.r > 1.1 ? 1.5 : 1;
       const k = Math.max(0, Math.min(1, s.t / s.delay));
       if (k < 0.12) continue;
       const f = 1 - (k - 0.12) / 0.88; /* 남은 길: 1 → 0 */
@@ -837,7 +949,7 @@ class Renderer {
       const ty = (oy / n) * ts;
       for (const [w, len, color] of [[0.5, 1.9, 'rgba(255,104,24,.35)'], [0.3, 1.4, 'rgba(255,170,60,.8)'], [0.14, 0.9, 'rgba(255,241,168,.95)']]) {
         ctx.strokeStyle = color;
-        ctx.lineWidth = ts * w;
+        ctx.lineWidth = ts * w * big;
         ctx.beginPath();
         ctx.moveTo(mx, my);
         ctx.lineTo(mx + tx * len, my + ty * len);
@@ -845,11 +957,11 @@ class Renderer {
       }
       ctx.fillStyle = '#ff9226';
       ctx.beginPath();
-      ctx.arc(mx, my, ts * 0.26, 0, Math.PI * 2);
+      ctx.arc(mx, my, ts * 0.26 * big, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#fff6cf';
       ctx.beginPath();
-      ctx.arc(mx - tx * 0.04, my - ty * 0.04, ts * 0.15, 0, Math.PI * 2);
+      ctx.arc(mx - tx * 0.04, my - ty * 0.04, ts * 0.15 * big, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -859,6 +971,28 @@ class Renderer {
       if (c.life <= 0) continue;
       this.columns[n++] = c;
       const k = c.life / c.max; /* 1 → 0 */
+      if (c.kind === 'thunder') {
+        /* 하늘에서 내리꽂히는 벼락 */
+        const x0 = this.px(c.x, c.y);
+        const y0 = this.py(c.x, c.y);
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        for (let i = 1; i <= 7; i++) {
+          const jx = Math.sin(c.seed * 40 + i * 2.3) * ts * 0.28 * (i < 7 ? 1 : 0.4);
+          ctx.lineTo(x0 + jx + i * ts * 0.12, y0 - i * ts * 0.95);
+        }
+        ctx.strokeStyle = `rgba(154,107,234,${0.5 * k})`;
+        ctx.lineWidth = ts * 0.26;
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(203,236,255,${k})`;
+        ctx.lineWidth = ts * 0.11;
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${k})`;
+        ctx.lineWidth = Math.max(1, ts * 0.04);
+        ctx.stroke();
+        continue;
+      }
       const up = Math.min(1, (1 - k) * 5);
       const x = this.px(c.x, c.y);
       const y = this.py(c.x, c.y);
@@ -883,29 +1017,47 @@ class Renderer {
     this.columns.length = n;
   }
 
-  /* 화염파의 충격파: 발밑에서 퍼져 나가는 불 고리 */
+  /* 탑 둘레로 퍼져 나가는 고리: 화염파의 충격파, 종소리, 한파, 지진, 중력, 시간 정지 */
   drawShockwaves(ctx, t) {
     const { ts, game } = this;
     for (const tw of game.towers) {
       const w = tw.wave;
       if (!w) continue;
+      const lord = tw.def.mech === 'lord';
+      const sk = lord ? SKIN.fire : SKIN[tw.def.skin] || SKIN.bell;
       const k = Math.min(1, w.t / w.dur);
       const x = this.px(tw.cx, tw.cy);
-      const y = this.py(tw.cx, tw.cy) + ts * 0.2;
-      const r = Math.max(1, (w.now || 0) * ts);
+      const y = this.py(tw.cx, tw.cy) + (lord ? ts * 0.2 : 0);
+      /* 중력탑의 고리는 바깥에서 탑 쪽으로 조여든다 */
+      const r = Math.max(1, (tw.def.skin === 'void' ? w.r - (w.now || 0) * 0.85 : w.now || 0) * ts);
       const fade = 1 - k * k;
-      ctx.fillStyle = `rgba(255,120,30,${0.2 * fade})`;
+      ctx.fillStyle = `rgba(${sk.rgb},${0.2 * fade})`;
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.arc(x, y, tw.def.skin === 'void' ? w.r * ts : r, 0, Math.PI * 2);
       ctx.fill();
-      for (const [width, color] of [[0.5, `rgba(255,104,24,${0.4 * fade})`], [0.28, `rgba(255,170,60,${0.9 * fade})`], [0.12, `rgba(255,246,207,${fade})`]]) {
-        ctx.strokeStyle = color;
+      for (const [width, alpha] of [[0.5, 0.35], [0.28, 0.85]]) {
+        ctx.strokeStyle = `rgba(${sk.rgb},${alpha * fade})`;
         ctx.lineWidth = Math.max(1, ts * width * (1 - k * 0.5));
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.stroke();
       }
-      if (!this.reduced) {
+      ctx.strokeStyle = `rgba(255,255,255,${fade})`;
+      ctx.lineWidth = Math.max(1, ts * 0.1 * (1 - k * 0.5));
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      if (tw.def.skin === 'bell' || tw.def.skin === 'time') {
+        /* 소리·시간의 결: 안쪽으로 겹고리 */
+        ctx.strokeStyle = `rgba(${sk.rgb},${0.6 * fade})`;
+        ctx.lineWidth = Math.max(1, ts * 0.05);
+        for (const f of [0.72, 0.44]) {
+          ctx.beginPath();
+          ctx.arc(x, y, r * f, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      if (lord && !this.reduced) {
         /* 고리를 따라 이는 불꽃 */
         for (let i = 0; i < 5; i++) {
           const a = Math.random() * Math.PI * 2;
@@ -1010,9 +1162,25 @@ class Renderer {
     }
   }
 
-  drawShots(ctx) {
+  drawShots(ctx, t) {
     const { ts, game } = this;
     ctx.lineCap = 'round';
+    const ball = (x, y, r, fill, shine) => {
+      ctx.fillStyle = ART.OUT;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 1.32, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      if (shine) {
+        ctx.fillStyle = shine;
+        ctx.beginPath();
+        ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
     for (const s of game.shots) {
       const gx = this.px(s.x, s.y);
       const gy = this.py(s.x, s.y);
@@ -1023,76 +1191,117 @@ class Renderer {
       const len = Math.hypot(du, dv) || 1;
       du /= len;
       dv /= len;
-      if (s.kind === 'arrow') {
-        ctx.strokeStyle = ART.OUT;
-        ctx.lineWidth = Math.max(2.4, ts * 0.085);
+      const line = (back, front, color, w) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = w;
         ctx.beginPath();
-        ctx.moveTo(gx - du * ts * 0.34, y - dv * ts * 0.34);
-        ctx.lineTo(gx, y);
+        ctx.moveTo(gx - du * ts * back, y - dv * ts * back);
+        ctx.lineTo(gx + du * ts * front, y + dv * ts * front);
         ctx.stroke();
-        ctx.strokeStyle = '#f3e4bb';
-        ctx.lineWidth = Math.max(1.2, ts * 0.04);
-        ctx.stroke();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(gx, y, Math.max(1.2, ts * 0.045), 0, Math.PI * 2);
-        ctx.fill();
-      } else if (s.kind === 'vial') {
-        ctx.fillStyle = ART.shadow;
-        ctx.beginPath();
-        ctx.ellipse(gx, gy, ts * 0.09, ts * 0.04, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = ART.OUT;
-        ctx.beginPath();
-        ctx.arc(gx, y, ts * 0.1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#8fe04a';
-        ctx.beginPath();
-        ctx.arc(gx, y, ts * 0.072, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,.75)';
-        ctx.beginPath();
-        ctx.arc(gx - ts * 0.025, y - ts * 0.03, ts * 0.025, 0, Math.PI * 2);
-        ctx.fill();
+      };
+      if (s.kind === 'bolt') {
+        const sk = SKIN[s.skin] || SKIN.arrow;
+        switch (s.skin) {
+          case 'ember':
+            line(0.4, 0, 'rgba(255,146,38,.5)', ts * 0.12);
+            ball(gx, y, ts * 0.075, '#ff9226', '#fff1a8');
+            break;
+          case 'orb':
+            ctx.fillStyle = 'rgba(203,166,255,.35)';
+            ctx.beginPath();
+            ctx.arc(gx, y, ts * 0.2, 0, Math.PI * 2);
+            ctx.fill();
+            line(0.34, 0, 'rgba(154,107,234,.6)', ts * 0.1);
+            ball(gx, y, ts * 0.085, '#cba6ff', '#ffffff');
+            break;
+          case 'icicle':
+            line(0.3, 0.06, ART.OUT, Math.max(3.4, ts * 0.13));
+            line(0.3, 0.06, '#9cddf8', Math.max(2, ts * 0.08));
+            line(0.05, 0.1, '#ecfbff', Math.max(1.4, ts * 0.05));
+            break;
+          case 'harpoon': {
+            /* 탑에서 풀려 나가는 밧줄 */
+            ctx.strokeStyle = 'rgba(120,90,60,.7)';
+            ctx.lineWidth = Math.max(1, ts * 0.025);
+            ctx.beginPath();
+            ctx.moveTo(this.px(s.src.cx, s.src.cy), this.py(s.src.cx, s.src.cy) - s.src.lv.h * ts);
+            ctx.lineTo(gx, y);
+            ctx.stroke();
+            line(0.42, 0, ART.OUT, Math.max(3, ts * 0.11));
+            line(0.42, 0, '#a7b2c4', Math.max(1.6, ts * 0.055));
+            ctx.fillStyle = '#e1e5ec';
+            ctx.strokeStyle = ART.OUT;
+            ctx.lineWidth = Math.max(1, ts * 0.03);
+            ctx.beginPath();
+            ctx.moveTo(gx + du * ts * 0.12, y + dv * ts * 0.12);
+            ctx.lineTo(gx - du * ts * 0.06 - dv * ts * 0.09, y - dv * ts * 0.06 + du * ts * 0.09);
+            ctx.lineTo(gx - du * ts * 0.06 + dv * ts * 0.09, y - dv * ts * 0.06 - du * ts * 0.09);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+          }
+          case 'shuriken': {
+            /* 빙글빙글 도는 네 갈래 표창 */
+            const a = t * 26 + s.x * 3;
+            ctx.fillStyle = '#d8dfea';
+            ctx.strokeStyle = ART.OUT;
+            ctx.lineWidth = Math.max(1.2, ts * 0.035);
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+              const r = (i % 2 ? 0.055 : 0.15) * ts;
+              const q = a + (i * Math.PI) / 4;
+              if (i) ctx.lineTo(gx + Math.cos(q) * r, y + Math.sin(q) * r);
+              else ctx.moveTo(gx + Math.cos(q) * r, y + Math.sin(q) * r);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            break;
+          }
+          case 'bee': {
+            const wob = Math.sin(t * 30 + s.x * 9) * ts * 0.04;
+            ctx.fillStyle = 'rgba(255,255,255,.75)';
+            ctx.beginPath();
+            ctx.ellipse(gx - du * ts * 0.02, y + wob - ts * 0.07, ts * 0.07, ts * 0.04, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ball(gx, y + wob, ts * 0.06, '#f6bd22');
+            ctx.strokeStyle = ART.OUT;
+            ctx.lineWidth = Math.max(1, ts * 0.03);
+            ctx.beginPath();
+            ctx.moveTo(gx - dv * ts * 0.05, y + wob + du * ts * 0.05);
+            ctx.lineTo(gx + dv * ts * 0.05, y + wob - du * ts * 0.05);
+            ctx.stroke();
+            break;
+          }
+          default:
+            line(0.34, 0, ART.OUT, Math.max(2.4, ts * 0.085));
+            line(0.34, 0, sk.c, Math.max(1.2, ts * 0.04));
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(gx, y, Math.max(1.2, ts * 0.045), 0, Math.PI * 2);
+            ctx.fill();
+        }
       } else if (s.kind === 'shell') {
+        const big = s.skin === 'bomb' ? 1.35 : s.skin === 'shell' ? 1 : 0.86;
         ctx.fillStyle = ART.shadow;
         ctx.beginPath();
-        ctx.ellipse(gx, gy, ts * 0.11, ts * 0.05, 0, 0, Math.PI * 2);
+        ctx.ellipse(gx, gy, ts * 0.11 * big, ts * 0.05 * big, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = ART.OUT;
-        ctx.beginPath();
-        ctx.arc(gx, y, ts * 0.115, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#586275';
-        ctx.beginPath();
-        ctx.arc(gx, y, ts * 0.085, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,.5)';
-        ctx.beginPath();
-        ctx.arc(gx - ts * 0.03, y - ts * 0.03, ts * 0.03, 0, Math.PI * 2);
-        ctx.fill();
+        const sk = SKIN[s.skin] || SKIN.shell;
+        ball(gx, y, ts * 0.085 * big, sk.c, s.skin === 'tar' ? 'rgba(255,255,255,.25)' : 'rgba(255,255,255,.55)');
+        if (s.skin === 'bomb') {
+          /* 타들어 가는 심지 */
+          ctx.fillStyle = '#ffb347';
+          ctx.beginPath();
+          ctx.arc(gx + ts * 0.07, y - ts * 0.12, ts * (0.035 + 0.015 * Math.sin(t * 40)), 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (s.kind === 'rocket') {
-        ctx.strokeStyle = 'rgba(255,255,255,.7)';
-        ctx.lineWidth = Math.max(2, ts * 0.09);
-        ctx.beginPath();
-        ctx.moveTo(gx - du * ts * 0.62, y - dv * ts * 0.62);
-        ctx.lineTo(gx - du * ts * 0.2, y - dv * ts * 0.2);
-        ctx.stroke();
-        ctx.strokeStyle = '#ffb347';
-        ctx.lineWidth = Math.max(2, ts * 0.07);
-        ctx.beginPath();
-        ctx.moveTo(gx - du * ts * 0.32, y - dv * ts * 0.32);
-        ctx.lineTo(gx - du * ts * 0.12, y - dv * ts * 0.12);
-        ctx.stroke();
-        ctx.strokeStyle = ART.OUT;
-        ctx.lineWidth = Math.max(3, ts * 0.11);
-        ctx.beginPath();
-        ctx.moveTo(gx - du * ts * 0.14, y - dv * ts * 0.14);
-        ctx.lineTo(gx + du * ts * 0.1, y + dv * ts * 0.1);
-        ctx.stroke();
-        ctx.strokeStyle = '#ee8530';
-        ctx.lineWidth = Math.max(1.6, ts * 0.06);
-        ctx.stroke();
+        line(0.62, -0.2, 'rgba(255,255,255,.7)', Math.max(2, ts * 0.09));
+        line(0.32, -0.12, '#ffb347', Math.max(2, ts * 0.07));
+        line(0.14, 0.1, ART.OUT, Math.max(3, ts * 0.11));
+        line(0.14, 0.1, '#ee8530', Math.max(1.6, ts * 0.06));
       }
     }
   }
@@ -1144,7 +1353,7 @@ class Renderer {
     ctx.globalAlpha = 1;
     this.particles.length = n;
 
-    /* 저격탑의 총알 궤적 */
+    /* 쏘는 즉시 맞는 공격의 궤적: 총알, 창, 기관포 예광탄, 레일건, 낫, 던져 놓는 덫 */
     n = 0;
     ctx.lineCap = 'round';
     for (const tr of this.tracers) {
@@ -1156,15 +1365,54 @@ class Renderer {
       const ay = this.py(tr.x0, tr.y0) - tr.h * ts;
       const bx = this.px(tr.x1, tr.y1);
       const by = this.py(tr.x1, tr.y1) - ts * 0.1;
-      ctx.strokeStyle = `rgba(255,226,126,${0.6 * k})`;
-      ctx.lineWidth = Math.max(2, ts * 0.09);
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(255,255,255,${k})`;
-      ctx.lineWidth = Math.max(1, ts * 0.035);
-      ctx.stroke();
+      const seg = (f0, f1, color, w) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.moveTo(ax + (bx - ax) * f0, ay + (by - ay) * f0);
+        ctx.lineTo(ax + (bx - ax) * f1, ay + (by - ay) * f1);
+        ctx.stroke();
+      };
+      if (tr.skin === 'spear') {
+        /* 날아가는 창: 자루와 날 */
+        const f = 1 - k;
+        seg(Math.max(0, f - 0.3), f, ART.OUT, Math.max(3, ts * 0.1));
+        seg(Math.max(0, f - 0.3), f, '#b07642', Math.max(1.6, ts * 0.05));
+        seg(Math.max(0, f - 0.07), f, '#e1e5ec', Math.max(2.2, ts * 0.075));
+      } else if (tr.skin === 'tracer') {
+        seg(0.1, 1, `rgba(255,226,126,${0.8 * k})`, Math.max(1.4, ts * 0.045));
+      } else if (tr.skin === 'rail') {
+        seg(0, 1, `rgba(82,168,220,${0.5 * k})`, ts * 0.34 * k);
+        seg(0, 1, `rgba(156,221,248,${0.9 * k})`, ts * 0.17 * k);
+        seg(0, 1, `rgba(255,255,255,${k})`, Math.max(1, ts * 0.06));
+      } else if (tr.skin === 'scythe') {
+        /* 적 머리 위에서 내리긋는 낫 자국 */
+        const a0 = -2.4 + (1 - k) * 2.2;
+        ctx.strokeStyle = `rgba(60,30,80,${0.9 * k})`;
+        ctx.lineWidth = ts * 0.16;
+        ctx.beginPath();
+        ctx.arc(bx, by - ts * 0.2, ts * 0.5, a0, a0 + 1.4);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(203,166,255,${k})`;
+        ctx.lineWidth = ts * 0.06;
+        ctx.stroke();
+        seg(0, 1, `rgba(154,107,234,${0.35 * k})`, Math.max(1, ts * 0.04));
+      } else if (tr.skin === 'toss') {
+        const f = 1 - k;
+        const x = ax + (bx - ax) * f;
+        const y = ay + (by - ay) * f - Math.sin(f * Math.PI) * ts * 0.6;
+        ctx.fillStyle = ART.OUT;
+        ctx.beginPath();
+        ctx.arc(x, y, ts * 0.075, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#d8dfea';
+        ctx.beginPath();
+        ctx.arc(x, y, ts * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        seg(0, 1, `rgba(255,226,126,${0.6 * k})`, Math.max(2, ts * 0.09));
+        seg(0, 1, `rgba(255,255,255,${k})`, Math.max(1, ts * 0.035));
+      }
     }
     this.tracers.length = n;
 
@@ -1263,7 +1511,7 @@ class Renderer {
 
   drawSelection(ctx, ui) {
     const { ts, game } = this;
-    if (ui.selected && ui.selected.lv.range > 0) this.drawRange(ctx, ui.selected.cx, ui.selected.cy, ui.selected.lv.range, true);
+    if (ui.selected && ui.selected.range > 0) this.drawRange(ctx, ui.selected.cx, ui.selected.cy, ui.selected.range, true);
     if (ui.placing && ui.hover && game.inBounds(ui.hover.x, ui.hover.y)) {
       const { x, y } = ui.hover;
       const lv = game.lvOf(ui.placing, 0);

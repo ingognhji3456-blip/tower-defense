@@ -25,14 +25,28 @@ const TARGET_MODES = [
 /* ───────── 타워 ─────────
    거리 단위는 타일, 시간 단위는 초. levels[n].cost 는 그 단계로 올리는 값.
    h 는 무기(발사 지점)가 타일 중심에서 위로 얼마나 높이 있는지 — 그림과 발사체가 이 높이를 함께 쓴다.
-   rarity 는 뽑기 등급. 탑은 뽑기로 얻고, 전투에는 다섯 개까지 골라 데려간다. */
-const TOWER_ORDER = ['crossbow', 'cannon', 'frost', 'poison', 'sniper', 'mine', 'rocket', 'tesla', 'flame', 'laser', 'lord'];
+   rarity 는 뽑기 등급. 탑은 뽑기로 얻고, 전투에는 다섯 개까지 골라 데려간다.
 
+   mech 는 공격 방식이다.
+     bolt     적을 쫓아가 맞는 탄. multi = 한 번에 노리는 적의 수, bounce = 맞은 뒤 다른 적에게 튕기는 횟수
+     shell    포물선으로 날아가 splash 반지름으로 터지는 탄. minRange 안쪽은 쏘지 못한다
+     snipe    쏘는 즉시 맞는다. line 이면 일직선 위의 적을 through 마리까지(없으면 전부) 꿰뚫는다
+     rockets  로켓 여러 발을 한꺼번에        chain  적에서 적으로 튀는 번개
+     cone     겨눈 쪽 부채꼴을 계속 태운다    beam   한 적을 계속 비춘다. split = 곁의 적에게 갈라지는 줄기 수
+     aura     사거리 안의 적에게 늘 걸리는 효과(slow·vuln·shred), dps 가 있으면 계속 피해도 준다
+     nova     every 초마다 탑 둘레로 고리를 퍼뜨린다 (aura 탑도 every 가 있으면 함께 쓴다)
+     strike   하늘에서 떨어지는 공격을 count 번. pick: 'cluster' 면 적이 몰린 곳을 고른다
+     trap     길 위에 덫을 traps 개까지 깐다    buff   곁의 탑을 돕는다(amp 피해, haste 연사, reach 사거리)
+     income   골드를 번다. interest 는 웨이브가 끝날 때 가진 골드에 붙는 이자(cap 까지)
+     lord     영웅 화염파
+   맞은 적에게 걸리는 효과: slow·slowT(둔화), stun(기절), dot·dotT(지속 피해), shred·shredMax(갑옷 깎기),
+     kb(뒤로 밀어내기), exec(체력이 이 비율 아래면 즉사), bounty(이 탑이 처치하면 더 받는 골드).
+   dtype 은 피해의 종류: 'phys'(갑옷에 깎인다, 기본값) 또는 'magic'. pierce 면 갑옷을 무시한다. */
 const TOWERS = {
+  /* ── 일반 ── */
   crossbow: {
-    name: '석궁탑', rarity: 'common',
+    name: '석궁탑', rarity: 'common', mech: 'bolt', skin: 'arrow',
     blurb: '볼트를 빠르게 쏩니다. 값이 싸서 어디에나 세우기 좋습니다.',
-    kind: 'phys',
     levels: [
       { cost: 50, dmg: 8, cd: 0.8, range: 2.6, h: 0.7 },
       { cost: 45, dmg: 14, cd: 0.7, range: 2.9, h: 0.88 },
@@ -40,9 +54,8 @@ const TOWERS = {
     ],
   },
   cannon: {
-    name: '대포탑', rarity: 'common',
+    name: '대포탑', rarity: 'common', mech: 'shell', skin: 'shell',
     blurb: '포탄이 터지며 주변 적을 함께 때립니다. 떼로 몰려올 때 강합니다.',
-    kind: 'phys',
     levels: [
       { cost: 110, dmg: 22, cd: 1.8, range: 2.7, splash: 1.0, h: 0.68 },
       { cost: 90, dmg: 38, cd: 1.7, range: 2.9, splash: 1.15, h: 0.86 },
@@ -50,19 +63,82 @@ const TOWERS = {
     ],
   },
   frost: {
-    name: '서리탑', rarity: 'common',
+    name: '서리탑', rarity: 'common', mech: 'aura', skin: 'ice',
     blurb: '냉기를 뿜어 주변 적을 느리게 합니다. 직접 공격하지는 않습니다.',
-    kind: 'aura',
     levels: [
       { cost: 80, slow: 0.3, range: 1.9, h: 0.78 },
       { cost: 70, slow: 0.4, range: 2.2, h: 0.98 },
       { cost: 130, slow: 0.5, range: 2.5, vuln: 0.15, h: 1.18 },
     ],
   },
+  spear: {
+    name: '창탑', rarity: 'common', mech: 'snipe', line: true, skin: 'spear',
+    blurb: '창을 던져 일직선 위의 적을 차례로 꿰뚫습니다. 길이 곧게 뻗은 곳에 세우면 좋습니다.',
+    levels: [
+      { cost: 60, dmg: 16, cd: 1.5, range: 2.5, through: 2, h: 0.66 },
+      { cost: 55, dmg: 26, cd: 1.4, range: 2.8, through: 3, h: 0.82 },
+      { cost: 100, dmg: 42, cd: 1.25, range: 3.1, through: 4, h: 1.0 },
+    ],
+  },
+  twin: {
+    name: '쌍궁탑', rarity: 'common', mech: 'bolt', skin: 'arrow',
+    blurb: '궁수 여럿이 서로 다른 적을 한꺼번에 쏩니다.',
+    levels: [
+      { cost: 70, dmg: 7, cd: 0.9, range: 2.5, multi: 2, h: 0.68 },
+      { cost: 60, dmg: 12, cd: 0.8, range: 2.8, multi: 2, h: 0.84 },
+      { cost: 110, dmg: 18, cd: 0.7, range: 3.1, multi: 3, h: 1.02 },
+    ],
+  },
+  trap: {
+    name: '가시덫탑', rarity: 'common', mech: 'trap', skin: 'trap',
+    blurb: '가까운 길 위에 가시덫을 깔아 둡니다. 덫을 밟은 적과 그 둘레가 다치고 잠깐 느려집니다.',
+    levels: [
+      { cost: 65, dmg: 17, cd: 2.6, range: 2.2, traps: 3, splash: 0.55, slow: 0.3, slowT: 1.0, h: 0.6 },
+      { cost: 60, dmg: 28, cd: 2.3, range: 2.4, traps: 4, splash: 0.6, slow: 0.3, slowT: 1.2, h: 0.74 },
+      { cost: 105, dmg: 46, cd: 2.0, range: 2.6, traps: 5, splash: 0.65, slow: 0.35, slowT: 1.4, h: 0.9 },
+    ],
+  },
+  torch: {
+    name: '횃불탑', rarity: 'common', mech: 'bolt', skin: 'ember', dtype: 'magic', dotKind: 'burn',
+    blurb: '불씨를 던져 적에게 불을 붙입니다. 불은 껍질과 회피를 무시하고 한동안 타오릅니다.',
+    levels: [
+      { cost: 75, dmg: 9, dot: 6, dotT: 3, cd: 1.2, range: 2.4, h: 0.72 },
+      { cost: 65, dmg: 15, dot: 11, dotT: 3, cd: 1.1, range: 2.6, h: 0.9 },
+      { cost: 115, dmg: 24, dot: 18, dotT: 3, cd: 1.0, range: 2.9, h: 1.08 },
+    ],
+  },
+  bell: {
+    name: '종탑', rarity: 'common', mech: 'nova', skin: 'bell', dtype: 'magic',
+    blurb: '종을 울려 주변 적을 잠깐 멈춰 세웁니다.',
+    levels: [
+      { cost: 90, dmg: 6, stun: 0.5, every: 4.0, range: 1.7, h: 0.8 },
+      { cost: 75, dmg: 10, stun: 0.65, every: 3.6, range: 1.9, h: 0.98 },
+      { cost: 130, dmg: 16, stun: 0.8, every: 3.2, range: 2.1, h: 1.16 },
+    ],
+  },
+  watch: {
+    name: '감시탑', rarity: 'common', mech: 'buff',
+    blurb: '멀리 내다보고 알려 주어 곁에 선 탑들의 사거리를 늘려 줍니다. 직접 공격하지는 않습니다.',
+    levels: [
+      { cost: 55, reach: 0.12, range: 1.6, h: 0.74 },
+      { cost: 50, reach: 0.18, range: 1.8, h: 0.92 },
+      { cost: 90, reach: 0.25, range: 2.3, h: 1.12 },
+    ],
+  },
+  tar: {
+    name: '끈끈이탑', rarity: 'common', mech: 'shell', skin: 'tar', dtype: 'magic',
+    blurb: '끈끈한 역청 덩어리를 던져 터진 자리의 적들을 한동안 느리게 합니다.',
+    levels: [
+      { cost: 70, dmg: 4, slow: 0.35, slowT: 2.2, cd: 2.4, range: 2.6, splash: 1.0, h: 0.66 },
+      { cost: 60, dmg: 6, slow: 0.42, slowT: 2.5, cd: 2.2, range: 2.8, splash: 1.15, h: 0.82 },
+      { cost: 110, dmg: 9, slow: 0.5, slowT: 2.8, cd: 2.0, range: 3.1, splash: 1.3, h: 1.0 },
+    ],
+  },
+
+  /* ── 희귀 ── */
   poison: {
-    name: '독탑', rarity: 'rare',
+    name: '독탑', rarity: 'rare', mech: 'shell', skin: 'vial', dtype: 'magic', dotKind: 'poison',
     blurb: '독병을 던져 주변 적을 중독시킵니다. 독은 껍질과 회피를 무시하고 4초 동안 몸을 갉아먹습니다.',
-    kind: 'magic',
     levels: [
       { cost: 120, dmg: 5, dot: 7, cd: 1.6, range: 2.8, splash: 0.8, h: 0.74 },
       { cost: 100, dmg: 8, dot: 13, cd: 1.5, range: 3.0, splash: 0.9, h: 0.92 },
@@ -70,9 +146,8 @@ const TOWERS = {
     ],
   },
   sniper: {
-    name: '저격탑', rarity: 'rare',
+    name: '저격탑', rarity: 'rare', mech: 'snipe', pierce: true, mode: 'strong', skin: 'bullet',
     blurb: '아주 멀리서 한 발씩 강하게 쏩니다. 껍질을 꿰뚫지만 장전이 깁니다.',
-    kind: 'phys', pierce: true, mode: 'strong',
     levels: [
       { cost: 140, dmg: 60, cd: 2.6, range: 5.5, h: 0.92 },
       { cost: 120, dmg: 110, cd: 2.4, range: 6.0, h: 1.06 },
@@ -80,19 +155,82 @@ const TOWERS = {
     ],
   },
   mine: {
-    name: '금광', rarity: 'rare',
+    name: '금광', rarity: 'rare', mech: 'income',
     blurb: '싸우지 않는 대신 전투 중에 8초마다 골드를 캡니다. 긴 싸움일수록 이득입니다.',
-    kind: 'income',
     levels: [
       { cost: 130, income: 4, every: 8, range: 0, h: 0.6 },
       { cost: 110, income: 7, every: 8, range: 0, h: 0.7 },
       { cost: 190, income: 11, every: 8, range: 0, h: 0.8 },
     ],
   },
+  mortar: {
+    name: '박격포탑', rarity: 'rare', mech: 'shell', skin: 'bomb', speed: 5,
+    blurb: '아주 먼 곳까지 큰 포탄을 쏘아 올립니다. 넓게 터지지만 코앞의 적은 쏘지 못합니다.',
+    levels: [
+      { cost: 135, dmg: 34, cd: 3.4, range: 5.2, minRange: 1.8, splash: 1.25, h: 0.5 },
+      { cost: 115, dmg: 56, cd: 3.2, range: 5.8, minRange: 1.8, splash: 1.4, h: 0.58 },
+      { cost: 200, dmg: 92, cd: 2.9, range: 6.4, minRange: 1.8, splash: 1.6, h: 0.68 },
+    ],
+  },
+  harpoon: {
+    name: '작살탑', rarity: 'rare', mech: 'bolt', skin: 'harpoon', speed: 15,
+    blurb: '작살로 적을 꿰어 그 자리에 잠깐 붙잡아 둡니다. 빠른 적을 세우는 데 좋습니다.',
+    levels: [
+      { cost: 125, dmg: 44, stun: 0.6, cd: 2.0, range: 3.0, h: 0.76 },
+      { cost: 105, dmg: 72, stun: 0.8, cd: 1.85, range: 3.3, h: 0.94 },
+      { cost: 190, dmg: 116, stun: 1.0, cd: 1.7, range: 3.6, h: 1.12 },
+    ],
+  },
+  shuriken: {
+    name: '표창탑', rarity: 'rare', mech: 'bolt', skin: 'shuriken',
+    blurb: '표창이 적을 맞히고 가까운 다른 적에게로 튕겨 갑니다.',
+    levels: [
+      { cost: 120, dmg: 11, bounce: 2, cd: 1.0, range: 2.6, h: 0.56 },
+      { cost: 100, dmg: 18, bounce: 3, cd: 0.9, range: 2.9, h: 0.88 },
+      { cost: 185, dmg: 28, bounce: 4, cd: 0.8, range: 3.2, h: 1.2 },
+    ],
+  },
+  icicle: {
+    name: '얼음창탑', rarity: 'rare', mech: 'bolt', skin: 'icicle', dtype: 'magic',
+    blurb: '얼음창을 쏘아 맞은 적을 한동안 느리게 합니다. 껍질과 회피를 무시합니다.',
+    levels: [
+      { cost: 115, dmg: 20, slow: 0.3, slowT: 1.6, cd: 1.1, range: 2.8, h: 0.78 },
+      { cost: 100, dmg: 34, slow: 0.36, slowT: 1.8, cd: 1.0, range: 3.1, h: 0.96 },
+      { cost: 180, dmg: 54, slow: 0.42, slowT: 2.0, cd: 0.9, range: 3.4, h: 1.14 },
+    ],
+  },
+  drum: {
+    name: '북탑', rarity: 'rare', mech: 'buff',
+    blurb: '북을 울려 곁에 선 탑들이 더 빨리 쏘게 합니다. 직접 공격하지는 않습니다.',
+    levels: [
+      { cost: 130, haste: 0.12, range: 1.7, h: 0.7 },
+      { cost: 110, haste: 0.18, range: 1.9, h: 0.86 },
+      { cost: 190, haste: 0.25, range: 2.3, h: 1.02 },
+    ],
+  },
+  lodge: {
+    name: '사냥꾼 오두막', rarity: 'rare', mech: 'bolt', skin: 'arrow',
+    blurb: '사냥꾼이 굵은 화살을 쏩니다. 이 탑이 처치한 적은 골드를 더 줍니다.',
+    levels: [
+      { cost: 125, dmg: 26, bounty: 2, cd: 1.3, range: 3.0, h: 0.7 },
+      { cost: 105, dmg: 44, bounty: 3, cd: 1.2, range: 3.3, h: 0.86 },
+      { cost: 185, dmg: 72, bounty: 5, cd: 1.05, range: 3.6, h: 1.02 },
+    ],
+  },
+  thorn: {
+    name: '가시덩굴탑', rarity: 'rare', mech: 'aura', dtype: 'magic', skin: 'thorn',
+    blurb: '덩굴이 사거리 안의 모든 적을 쉬지 않고 찌릅니다. 껍질과 회피를 무시합니다.',
+    levels: [
+      { cost: 120, dps: 7, range: 1.7, h: 0.7 },
+      { cost: 100, dps: 11, range: 1.9, h: 0.9 },
+      { cost: 180, dps: 17, range: 2.2, h: 1.1 },
+    ],
+  },
+
+  /* ── 영웅 ── */
   rocket: {
-    name: '로켓탑', rarity: 'epic',
+    name: '로켓탑', rarity: 'epic', mech: 'rockets', skin: 'rocket',
     blurb: '멀리까지 로켓을 한꺼번에 쏟아붓습니다. 장전이 깁니다.',
-    kind: 'phys',
     levels: [
       { cost: 170, dmg: 16, cd: 3.0, range: 4.2, rockets: 4, splash: 0.5, h: 0.72 },
       { cost: 140, dmg: 23, cd: 2.8, range: 4.6, rockets: 5, splash: 0.55, h: 0.9 },
@@ -100,9 +238,8 @@ const TOWERS = {
     ],
   },
   tesla: {
-    name: '번개탑', rarity: 'epic',
+    name: '번개탑', rarity: 'epic', mech: 'chain', dtype: 'magic',
     blurb: '번개가 적에서 적으로 튑니다. 단단한 껍질도 날쌘 몸놀림도 소용없습니다.',
-    kind: 'magic',
     levels: [
       { cost: 150, dmg: 20, cd: 1.1, range: 2.7, chain: 3, h: 0.86 },
       { cost: 120, dmg: 32, cd: 1.0, range: 2.9, chain: 4, h: 1.08 },
@@ -110,33 +247,178 @@ const TOWERS = {
     ],
   },
   flame: {
-    name: '화염탑', rarity: 'epic',
-    blurb: '가까운 적들에게 불길을 내뿜습니다. 사거리는 짧지만 불길 안의 적을 모두 태웁니다.',
-    kind: 'magic',
+    name: '화염탑', rarity: 'epic', mech: 'cone', dtype: 'magic', skin: 'flame',
+    blurb: '가까운 적들을 부채꼴 불길로 한꺼번에 태웁니다. 길이 꺾이는 곳에 세우면 좋습니다.',
     levels: [
       { cost: 160, dps: 24, range: 1.9, cone: 0.6, h: 0.66 },
       { cost: 130, dps: 40, range: 2.1, cone: 0.6, h: 0.82 },
       { cost: 240, dps: 66, range: 2.3, cone: 0.65, h: 0.98 },
     ],
   },
+  gatling: {
+    name: '기관포탑', rarity: 'epic', mech: 'snipe', skin: 'tracer',
+    blurb: '쉴 새 없이 쏘아 대며 맞힐 때마다 적의 껍질을 조금씩 깎아 냅니다.',
+    levels: [
+      { cost: 160, dmg: 9, shred: 0.4, shredMax: 5, cd: 0.2, range: 2.7, h: 0.7 },
+      { cost: 135, dmg: 14, shred: 0.6, shredMax: 8, cd: 0.18, range: 3.0, h: 0.86 },
+      { cost: 245, dmg: 22, shred: 0.9, shredMax: 12, cd: 0.15, range: 3.3, h: 1.02 },
+    ],
+  },
+  railgun: {
+    name: '레일건탑', rarity: 'epic', mech: 'snipe', line: true, pierce: true, skin: 'rail',
+    blurb: '사거리 끝까지 일직선 위의 적을 모조리 꿰뚫습니다. 껍질도 무시하지만 장전이 아주 깁니다.',
+    levels: [
+      { cost: 190, dmg: 55, cd: 3.2, range: 5.0, h: 0.8 },
+      { cost: 160, dmg: 95, cd: 3.0, range: 5.5, h: 0.98 },
+      { cost: 290, dmg: 160, cd: 2.7, range: 6.0, h: 1.16 },
+    ],
+  },
+  glacier: {
+    name: '빙하탑', rarity: 'epic', mech: 'nova', skin: 'ice', dtype: 'magic',
+    blurb: '때맞춰 한파를 터뜨려 주변의 적을 통째로 얼립니다.',
+    levels: [
+      { cost: 170, dmg: 20, stun: 1.0, every: 5.0, range: 2.1, h: 0.8 },
+      { cost: 145, dmg: 32, stun: 1.3, every: 4.6, range: 2.3, h: 1.0 },
+      { cost: 260, dmg: 50, stun: 1.6, every: 4.2, range: 2.6, h: 1.2 },
+    ],
+  },
+  quake: {
+    name: '지진탑', rarity: 'epic', mech: 'nova', skin: 'quake',
+    blurb: '큰 망치로 땅을 내리쳐 주변의 적을 모두 때리고 잠깐 비틀거리게 합니다.',
+    levels: [
+      { cost: 165, dmg: 22, stun: 0.25, every: 2.4, range: 1.8, h: 0.9 },
+      { cost: 140, dmg: 36, stun: 0.3, every: 2.2, range: 2.0, h: 1.08 },
+      { cost: 250, dmg: 50, stun: 0.35, every: 2.0, range: 2.2, h: 1.26 },
+    ],
+  },
+  curse: {
+    name: '저주탑', rarity: 'epic', mech: 'aura', skin: 'curse',
+    blurb: '저주를 내려 주변의 적이 받는 피해를 늘리고 껍질을 무르게 합니다. 직접 공격하지는 않습니다.',
+    levels: [
+      { cost: 150, vuln: 0.18, shred: 1, range: 2.2, h: 0.8 },
+      { cost: 130, vuln: 0.25, shred: 2, range: 2.5, h: 1.0 },
+      { cost: 230, vuln: 0.33, shred: 3, range: 2.8, h: 1.2 },
+    ],
+  },
+  hive: {
+    name: '벌집탑', rarity: 'epic', mech: 'bolt', skin: 'bee', dtype: 'magic', dotKind: 'poison', speed: 9,
+    blurb: '벌 떼가 여러 적에게 한꺼번에 달려들어 쏘고 독을 남깁니다.',
+    levels: [
+      { cost: 175, dmg: 11, dot: 3, dotT: 2, multi: 3, cd: 0.9, range: 3.0, h: 0.7 },
+      { cost: 150, dmg: 17, dot: 5, dotT: 2, multi: 4, cd: 0.85, range: 3.3, h: 0.88 },
+      { cost: 265, dmg: 25, dot: 8, dotT: 2, multi: 6, cd: 0.75, range: 3.6, h: 1.06 },
+    ],
+  },
+  prism: {
+    name: '프리즘탑', rarity: 'epic', mech: 'beam', dtype: 'magic', skin: 'prism',
+    blurb: '광선이 겨눈 적에게서 곁의 적들에게로 갈라집니다.',
+    levels: [
+      { cost: 180, dps: 26, split: 2, range: 2.8, h: 0.86 },
+      { cost: 150, dps: 42, split: 3, range: 3.1, h: 1.06 },
+      { cost: 270, dps: 68, split: 4, range: 3.4, h: 1.28 },
+    ],
+  },
+
+  /* ── 전설 ── */
   laser: {
-    name: '광선탑', rarity: 'legend',
+    name: '광선탑', rarity: 'legend', mech: 'beam', dtype: 'magic', skin: 'sun',
     blurb: '한 적에게 광선을 고정합니다. 오래 비출수록 피해가 세 배까지 커져 우두머리에게 특히 강합니다.',
-    kind: 'magic',
     levels: [
       { cost: 220, dps: 44, range: 3.0, h: 0.88 },
       { cost: 180, dps: 72, range: 3.3, h: 1.08 },
       { cost: 320, dps: 120, range: 3.6, h: 1.3 },
     ],
   },
+  dragon: {
+    name: '용의 탑', rarity: 'legend', mech: 'cone', dtype: 'magic', dotKind: 'burn', skin: 'dragon',
+    blurb: '탑에 깃든 용이 넓은 불길을 내뿜습니다. 불길에 닿은 적은 한동안 타오릅니다.',
+    levels: [
+      { cost: 260, dps: 30, dot: 6, dotT: 2, range: 2.4, cone: 0.7, h: 0.74 },
+      { cost: 210, dps: 48, dot: 10, dotT: 2, range: 2.7, cone: 0.7, h: 0.9 },
+      { cost: 380, dps: 76, dot: 16, dotT: 2, range: 3.0, cone: 0.75, h: 1.06 },
+    ],
+  },
+  storm: {
+    name: '천둥신전', rarity: 'legend', mech: 'strike', skin: 'thunder', dtype: 'magic',
+    blurb: '넓은 사거리 안의 적들 머리 위로 벼락을 잇달아 떨굽니다.',
+    levels: [
+      { cost: 250, dmg: 28, count: 2, splash: 0.6, delay: 0.25, cd: 1.7, range: 4.0, h: 0.72 },
+      { cost: 200, dmg: 36, count: 3, splash: 0.65, delay: 0.25, cd: 1.6, range: 4.4, h: 0.9 },
+      { cost: 360, dmg: 46, count: 4, splash: 0.7, delay: 0.25, cd: 1.5, range: 4.8, h: 1.2 },
+    ],
+  },
+  gravity: {
+    name: '중력탑', rarity: 'legend', mech: 'nova', skin: 'void', dtype: 'magic',
+    blurb: '중력을 뒤틀어 주변의 적을 길 뒤쪽으로 멀리 끌어당깁니다.',
+    levels: [
+      { cost: 240, dmg: 24, kb: 1.6, every: 5.5, range: 2.4, h: 0.7 },
+      { cost: 200, dmg: 38, kb: 2.0, every: 5.0, range: 2.7, h: 0.88 },
+      { cost: 350, dmg: 60, kb: 2.5, every: 4.5, range: 3.0, h: 1.08 },
+    ],
+  },
+  vault: {
+    name: '황금 금고', rarity: 'legend', mech: 'income',
+    blurb: '전투 중에 골드를 벌고, 웨이브가 끝날 때마다 가진 골드에 이자를 붙여 줍니다.',
+    levels: [
+      { cost: 260, income: 9, every: 8, interest: 0.04, cap: 40, range: 0, h: 0.7 },
+      { cost: 220, income: 14, every: 8, interest: 0.06, cap: 70, range: 0, h: 0.8 },
+      { cost: 380, income: 22, every: 8, interest: 0.08, cap: 110, range: 0, h: 0.9 },
+    ],
+  },
+  citadel: {
+    name: '사령탑', rarity: 'legend', mech: 'buff',
+    blurb: '깃발을 올려 곁에 선 탑들의 피해를 크게 늘려 줍니다. 직접 공격하지는 않습니다.',
+    levels: [
+      { cost: 240, amp: 0.15, range: 2.0, h: 1.0 },
+      { cost: 200, amp: 0.22, range: 2.3, h: 1.2 },
+      { cost: 360, amp: 0.3, range: 2.6, h: 1.4 },
+    ],
+  },
+  observatory: {
+    name: '천문대', rarity: 'legend', mech: 'strike', pick: 'cluster', skin: 'meteor', dtype: 'magic',
+    blurb: '아주 먼 곳까지, 적이 가장 몰린 자리에 운석을 떨어뜨립니다.',
+    levels: [
+      { cost: 270, dmg: 62, count: 1, splash: 1.3, delay: 0.9, cd: 4.2, range: 5.5, h: 0.54 },
+      { cost: 220, dmg: 98, count: 1, splash: 1.45, delay: 0.9, cd: 3.9, range: 6.0, h: 0.7 },
+      { cost: 390, dmg: 150, count: 1, splash: 1.6, delay: 0.9, cd: 3.5, range: 6.5, h: 0.88 },
+    ],
+  },
+  clock: {
+    name: '시계탑', rarity: 'legend', mech: 'aura', skin: 'time',
+    blurb: '주변의 시간을 늦춰 적을 크게 느리게 하고, 때맞춰 시간을 멈춰 세웁니다.',
+    levels: [
+      { cost: 250, slow: 0.4, stun: 1.2, every: 9, range: 2.4, h: 0.62 },
+      { cost: 210, slow: 0.48, stun: 1.5, every: 8, range: 2.7, h: 0.8 },
+      { cost: 370, slow: 0.56, stun: 1.8, every: 7, range: 3.0, h: 1.0 },
+    ],
+  },
+  reaper: {
+    name: '처형탑', rarity: 'legend', mech: 'snipe', dtype: 'magic', skin: 'scythe', mode: 'strong',
+    blurb: '가장 센 적을 골라 내리칩니다. 체력이 얼마 남지 않은 적은 그 자리에서 처형합니다(우두머리 제외).',
+    levels: [
+      { cost: 255, dmg: 110, exec: 0.15, cd: 2.2, range: 3.6, h: 0.7 },
+      { cost: 210, dmg: 190, exec: 0.2, cd: 2.0, range: 4.0, h: 0.88 },
+      { cost: 370, dmg: 320, exec: 0.25, cd: 1.8, range: 4.4, h: 1.06 },
+    ],
+  },
+  wizard: {
+    name: '마법사의 탑', rarity: 'legend', mech: 'bolt', skin: 'orb', dtype: 'magic', speed: 10,
+    blurb: '마법 구슬 여러 개가 서로 다른 적을 쫓아가 터집니다. 껍질과 회피를 무시합니다.',
+    levels: [
+      { cost: 245, dmg: 32, multi: 3, cd: 1.3, range: 3.4, h: 0.8 },
+      { cost: 205, dmg: 50, multi: 4, cd: 1.2, range: 3.8, h: 0.96 },
+      { cost: 365, dmg: 76, multi: 5, cd: 1.05, range: 4.2, h: 1.14 },
+    ],
+  },
+
+  /* ── 신화 ── */
   /* 영웅: 건물이 아니라 전장에 직접 서는 화염파. 한 판에 하나만 세울 수 있다. 강화할수록 공격이 는다.
      dmg 는 광선이 한 번 휩쓸 때 적 하나가 받는 피해, arc 는 휩쓰는 부채꼴의 각도(라디안), h 는 두 손의 높이,
      shock·shockR·push 는 충격파의 피해·반지름·밀어내는 거리(칸),
      pillar(·pillars) 는 2단부터 쓰는 불기둥의 피해(와 개수), meteor·meteors 는 3단의 유성 하나의 피해와 개수. */
   lord: {
-    name: '화염파', rarity: 'mythic', unique: true,
+    name: '화염파', rarity: 'mythic', unique: true, mech: 'lord', dtype: 'magic',
     blurb: '굵은 불꽃 광선을 부채꼴로 휘둘러 범위 안의 적을 한꺼번에 태우고, 적이 다가오면 충격파로 태우며 밀어냅니다. 2단에서 불기둥, 3단에서 유성우를 익힙니다. 한 판에 하나만 세울 수 있습니다.',
-    kind: 'magic',
     levels: [
       { cost: 520, dmg: 50, cd: 2.2, range: 3.4, arc: 1.3, shock: 30, shockR: 1.9, push: 0.9, h: 0.42 },
       { cost: 460, dmg: 64, cd: 2.0, range: 3.8, arc: 1.6, shock: 44, shockR: 2.1, push: 1.1, pillar: 100, pillars: 1, h: 0.48 },
@@ -145,8 +427,20 @@ const TOWERS = {
   },
 };
 
+/* 화면에 늘어놓는 순서: 등급 순, 같은 등급 안에서는 위에 적은 순 */
+const TOWER_ORDER = ['common', 'rare', 'epic', 'legend', 'mythic'].flatMap((r) => Object.keys(TOWERS).filter((t) => TOWERS[t].rarity === r));
+
 const FLAME_TICK = 0.15; // 화염탑이 피해를 주는 간격
 const POISON_TIME = 4; // 독이 이어지는 시간
+const LINE_HALF = 0.32; // 일직선 관통(창·레일건)의 반 굵기(칸)
+const BOUNCE_RANGE = 2.0; // 표창이 튕겨 갈 수 있는 거리(칸)
+const BOUNCE_FALLOFF = 0.8; // 튕길 때마다 줄어드는 피해
+const PRISM_RANGE = 1.7; // 프리즘탑: 광선이 갈라져 닿는 거리(칸)
+const PRISM_SHARE = 0.55; // 프리즘탑: 갈라진 줄기의 피해 비율
+const STUN_GUARD = 2.5; // 기절이 풀린 뒤 다시 기절하지 않는 시간(초)
+const KB_GUARD = 5; // 한 번 밀려난 적이 다시 밀려나지 않는 시간(초)
+const NOVA_TIME = 0.35; // 탑 둘레로 퍼지는 고리가 끝까지 가는 시간(초)
+const TRAP_ARM = 0.35; // 덫이 깔린 뒤 작동하기까지(초)
 const LORD_SWEEP = 0.75; // 화염파: 광선을 한 번 휘두르는 데 걸리는 시간(초)
 const LORD_BEAM = 0.28; // 화염파: 광선의 반 굵기(칸)
 const LORD_PILLAR_EVERY = 5.5; // 불기둥을 쓰는 간격(초)
@@ -187,7 +481,8 @@ function towerStats(type, level, rank) {
   const lv = Object.assign({}, base);
   for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
   if (lv.income) lv.income = Math.round(lv.income * (1 + 0.1 * rank));
-  if (TOWERS[type].kind === 'aura') lv.range = Math.round(lv.range * (1 + 0.05 * rank) * 100) / 100;
+  const mech = TOWERS[type].mech;
+  if (mech === 'aura' || mech === 'buff') lv.range = Math.round(lv.range * (1 + 0.05 * rank) * 100) / 100;
   return lv;
 }
 

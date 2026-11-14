@@ -40,23 +40,27 @@ function power(game, type, level, mix) {
   const lv = game.lvOf(type, level);
   const def = TOWERS[type];
   let eff = 1;
-  if (def.kind === 'phys') {
+  if (def.dtype !== 'magic' && lv.dmg) {
     eff = 0;
     for (const m of mix) eff += m.weight * (def.pierce ? 1 : Math.max(0.15, (lv.dmg - m.armor) / lv.dmg)) * m.phys;
   }
-  switch (type) {
-    case 'crossbow': return (lv.dmg / lv.cd) * eff;
-    case 'cannon': return (lv.dmg / lv.cd) * 2.2 * eff;
-    case 'rocket': return ((lv.dmg * lv.rockets) / lv.cd) * 1.3 * eff;
-    case 'tesla': {
+  const dot = (lv.dot || 0) * (lv.dotT || POISON_TIME) * 0.55;
+  switch (def.mech) {
+    case 'bolt': return ((lv.dmg * eff + dot) / lv.cd) * (lv.multi || 1) * (1 + 0.6 * (lv.bounce || 0)) * (lv.slow || lv.stun ? 1.2 : 1);
+    case 'shell': return ((lv.dmg * eff + dot) / lv.cd) * (lv.dot ? 2.0 : 2.2) * (lv.slow ? 3 : 1);
+    case 'rockets': return ((lv.dmg * lv.rockets) / lv.cd) * 1.3 * eff;
+    case 'chain': {
       let m = 0;
       for (let k = 0; k < lv.chain; k++) m += Math.pow(CHAIN_FALLOFF, k);
       return (lv.dmg / lv.cd) * (1 + (m - 1) * 0.7);
     }
-    case 'poison': return ((lv.dmg + lv.dot * POISON_TIME * 0.55) / lv.cd) * 2.0;
-    case 'sniper': return (lv.dmg / lv.cd) * eff * 1.15;
-    case 'flame': return lv.dps * 1.5;
-    case 'laser': return lv.dps * 1.7;
+    case 'snipe': return (lv.dmg / lv.cd) * eff * (def.line ? 1 + 0.5 * Math.min(4, lv.through || 4) : 1.15) * (lv.exec ? 1.3 : 1);
+    case 'cone': return (lv.dps + dot * 0.5) * 1.5;
+    case 'beam': return lv.dps * (lv.split ? 1 + lv.split * 0.4 : 1.7);
+    case 'aura': return (lv.dps || 0) * 2.5;
+    case 'nova': return (((lv.dmg || 0) * eff) / lv.every) * 4 + (lv.stun || 0) * 6 + (lv.kb || 0) * 5;
+    case 'strike': return ((lv.dmg * (lv.count || 1)) / lv.cd) * (1 + lv.splash);
+    case 'trap': return ((lv.dmg * eff) / lv.cd) * 1.6;
     case 'lord':
       return (lv.dmg / lv.cd) * 3 + (lv.shock * 2.5) / LORD_SHOCK_EVERY
         + ((lv.pillar || 0) * (lv.pillars || 1) * 2.5) / LORD_PILLAR_EVERY + ((lv.meteor || 0) * (lv.meteors || 0) * 2) / LORD_METEOR_EVERY;
@@ -79,8 +83,8 @@ const STRATEGIES = {
         continue;
       }
       const options = [];
-      const attackers = game.towers.filter((t) => t.def.kind !== 'aura');
-      const auras = game.towers.filter((t) => t.def.kind === 'aura');
+      const attackers = game.towers.filter((t) => t.def.mech !== 'aura');
+      const auras = game.towers.filter((t) => t.def.mech === 'aura');
       if (can('frost') && attackers.length >= 3 * (auras.length + 1) && auras.length < 5) {
         const anchor = attackers[auras.length * 3] || attackers[0];
         const spot = bestSpot(game, game.lvOf('frost', 0).range, anchor);
@@ -100,7 +104,7 @@ const STRATEGIES = {
       for (const t of game.towers) {
         const cost = game.upgradeCost(t);
         if (cost == null) continue;
-        if (t.def.kind === 'aura') {
+        if (t.def.mech === 'aura') {
           if (game.wave >= Math.min(8, game.finalWave / 2)) options.push({ value: 0.16, cost, run: () => game.upgrade(t) });
           continue;
         }

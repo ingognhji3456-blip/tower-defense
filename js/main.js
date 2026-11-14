@@ -188,40 +188,47 @@
 
   /* ───── 능력치 표기 ───── */
 
+  /* 탑마다 보여 줄 능력치: 그 탑의 단계 수치에 들어 있는 것만 고른다 */
   function statDefs(type) {
+    const def = TOWERS[type];
     const f1 = (n) => String(Math.round(n * 10) / 10);
-    switch (type) {
-      case 'frost':
-        return [
-          ['둔화', (l) => Math.round(l.slow * 100) + '%'],
-          ['거리', (l) => f1(l.range)],
-          ['받는 피해', (l) => (l.vuln ? '+' + Math.round(l.vuln * 100) + '%' : '—')],
-        ];
-      case 'rocket':
-        return [['피해', (l) => f1(l.dmg) + '×' + l.rockets], ['장전', (l) => f1(l.cd) + '초'], ['거리', (l) => f1(l.range)]];
-      case 'tesla':
-        return [['피해', (l) => f1(l.dmg)], ['연쇄', (l) => String(l.chain)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
-      case 'poison':
-        return [['독', (l) => '초당 ' + f1(l.dot)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
-      case 'sniper':
-        return [['피해', (l) => f1(l.dmg)], ['장전', (l) => f1(l.cd) + '초'], ['거리', (l) => f1(l.range)]];
-      case 'mine':
-        return [['수입', (l) => l.income + '골드'], ['간격', (l) => l.every + '초']];
-      case 'flame':
-        return [['초당 피해', (l) => f1(l.dps)], ['거리', (l) => f1(l.range)]];
-      case 'laser':
-        return [['초당 피해', (l) => f1(l.dps) + '~' + f1(l.dps * 3)], ['거리', (l) => f1(l.range)]];
-      case 'lord':
-        return [
-          ['휩쓸기', (l) => f1(l.dmg)],
-          ['충격파', (l) => f1(l.shock)],
-          ['불기둥', (l) => (l.pillar ? (l.pillars > 1 ? l.pillars + '×' : '') + f1(l.pillar) : '—')],
-          ['유성우', (l) => (l.meteor ? l.meteors + '×' + f1(l.meteor) : '—')],
-          ['거리', (l) => f1(l.range)],
-        ];
-      default:
-        return [['피해', (l) => f1(l.dmg)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
+    const pct = (n) => Math.round(n * 100) + '%';
+    const has = (k) => def.levels.some((l) => l[k]);
+    if (def.mech === 'lord') {
+      return [
+        ['휩쓸기', (l) => f1(l.dmg)],
+        ['충격파', (l) => f1(l.shock)],
+        ['불기둥', (l) => (l.pillar ? (l.pillars > 1 ? l.pillars + '×' : '') + f1(l.pillar) : '—')],
+        ['유성우', (l) => (l.meteor ? l.meteors + '×' + f1(l.meteor) : '—')],
+        ['거리', (l) => f1(l.range)],
+      ];
     }
+    const out = [];
+    const many = (l) => (l.rockets ? '×' + l.rockets : l.multi > 1 ? '×' + l.multi : l.count > 1 ? '×' + l.count : '');
+    if (has('dps')) out.push(['초당 피해', (l) => f1(l.dps) + (def.mech === 'beam' && !l.split ? '~' + f1(l.dps * 3) : '')]);
+    if (has('dmg')) out.push(['피해', (l) => f1(l.dmg) + many(l)]);
+    if (has('dot')) out.push([def.dotKind === 'burn' ? '화상' : '독', (l) => '초당 ' + f1(l.dot)]);
+    if (has('income')) out.push(['수입', (l) => l.income + '골드'], ['간격', (l) => l.every + '초']);
+    if (has('interest')) out.push(['이자', (l) => pct(l.interest)]);
+    if (has('amp')) out.push(['곁의 탑 피해', (l) => '+' + pct(l.amp)]);
+    if (has('haste')) out.push(['곁의 탑 연사', (l) => '+' + pct(l.haste)]);
+    if (has('reach')) out.push(['곁의 탑 사거리', (l) => '+' + pct(l.reach)]);
+    if (has('slow')) out.push(['둔화', (l) => pct(l.slow)]);
+    if (has('vuln')) out.push(['받는 피해', (l) => (l.vuln ? '+' + pct(l.vuln) : '—')]);
+    if (has('stun')) out.push([def.skin === 'ice' ? '빙결' : '기절', (l) => f1(l.stun) + '초']);
+    if (has('shred')) out.push(['껍질 깎기', (l) => f1(l.shredMax || l.shred)]);
+    if (has('kb')) out.push(['끌어당김', (l) => f1(l.kb) + '칸']);
+    if (has('exec')) out.push(['처형', (l) => pct(l.exec) + ' 이하']);
+    if (has('bounty')) out.push(['현상금', (l) => '+' + l.bounty]);
+    if (has('chain')) out.push(['연쇄', (l) => String(l.chain)]);
+    if (has('bounce')) out.push(['튕김', (l) => String(l.bounce)]);
+    if (has('through')) out.push(['관통', (l) => String(l.through)]);
+    if (has('split')) out.push(['갈래', (l) => String(l.split)]);
+    if (has('traps')) out.push(['덫', (l) => l.traps + '개']);
+    if (has('cd')) out.push(def.levels[0].cd >= 1.5 ? ['장전', (l) => f1(l.cd) + '초'] : ['연사', (l) => f1(1 / l.cd)]);
+    if (has('every') && !has('income')) out.push(['간격', (l) => f1(l.every) + '초']);
+    if (has('range')) out.push(['거리', (l) => f1(l.range)]);
+    return out;
   }
 
   function statList(type, lv, next) {
@@ -431,7 +438,7 @@
   /* 길을 따라 여러 탑을 흩어 세운 시연용 전장 */
   function sceneGame() {
     const g = new Game({ map: SCENE_MAPS[scene.mapAt++ % SCENE_MAPS.length], diff: 'normal', seed: (Math.random() * 2 ** 31) | 0 });
-    const kinds = TOWER_ORDER.filter((t) => TOWERS[t].kind !== 'income' && !TOWERS[t].unique);
+    const kinds = TOWER_ORDER.filter((t) => TOWER_ART[t] && !['income', 'buff'].includes(TOWERS[t].mech) && !TOWERS[t].unique);
     const tmp = {};
     let n = (Math.random() * kinds.length) | 0;
     for (const p of g.paths) {
@@ -1297,9 +1304,12 @@
     select(null);
   }
 
+  /* 누구를 먼저 노릴지 고를 수 있는 탑인가 */
+  const aims = (t) => t.lv.range > 0 && !['aura', 'buff', 'income', 'nova', 'trap', 'strike'].includes(t.def.mech);
+
   function cycleTarget() {
     const t = app.selected;
-    if (!t || !t.lv.range || t.def.kind === 'aura') return;
+    if (!t || !aims(t)) return;
     const i = TARGET_MODES.findIndex((m) => m.id === t.mode);
     t.mode = TARGET_MODES[(i + 1) % TARGET_MODES.length].id;
     Sfx.play('click');
@@ -1342,7 +1352,7 @@
         el.upgrade.disabled = true;
       }
       el.sell.textContent = (t.fresh ? '무르기 +' : '판매 +') + g.sellValue(t) + 'G';
-      el.target.hidden = !t.lv.range || t.def.kind === 'aura';
+      el.target.hidden = !aims(t);
       el.target.textContent = '조준 · ' + TARGET_MODES.find((m) => m.id === t.mode).name;
     }
   }

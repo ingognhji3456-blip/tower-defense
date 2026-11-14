@@ -77,7 +77,7 @@ const Sfx = {
   play(name) {
     if (!this.ctx || !this.enabled || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
-    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1 }[name] || 0;
+    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1, tick: 0.09, buzz: 0.25, chime: 0.07, thunder: 0.08, slash: 0.1 }[name] || 0;
     if (gap && now - (this.last[name] || 0) < gap) return;
     this.last[name] = now;
     const S = this.scale;
@@ -158,6 +158,43 @@ const Sfx = {
         this.hiss('lowpass', 1100, 140, 0.32, 0.42);
         this.tone('sine', 110, 38, 0.3, 0.42);
         break;
+      case 'chime':
+        this.tone('sine', 1800, 2400, 0.08, 0.05);
+        this.tone('sine', 2700, 3200, 0.1, 0.03, 0.03);
+        break;
+      case 'buzz':
+        this.tone('sawtooth', 220, 260, 0.12, 0.03);
+        break;
+      case 'tick':
+        this.hiss('highpass', 3000, 1800, 0.035, 0.1);
+        break;
+      case 'rail':
+        this.tone('sawtooth', 1800, 200, 0.28, 0.1);
+        this.tone('sine', 120, 45, 0.35, 0.4);
+        this.hiss('highpass', 4000, 1500, 0.2, 0.15);
+        break;
+      case 'slash':
+        this.hiss('bandpass', 3200, 700, 0.16, 0.22);
+        this.tone('sine', 300, 90, 0.2, 0.12);
+        break;
+      case 'bell':
+        this.tone('sine', 660, 650, 0.9, 0.22);
+        this.tone('sine', 1320, 1310, 0.6, 0.1);
+        this.tone('triangle', 1980, 1960, 0.3, 0.05);
+        break;
+      case 'freeze':
+        for (let i = 0; i < 4; i++) this.tone('sine', 2000 + i * 400, 2400 + i * 400, 0.12, 0.04, i * 0.04);
+        this.hiss('highpass', 5000, 2500, 0.3, 0.1);
+        break;
+      case 'warp':
+        this.tone('sine', 420, 60, 0.6, 0.3);
+        this.tone('sawtooth', 210, 40, 0.6, 0.06);
+        break;
+      case 'thunder':
+        this.hiss('highpass', 2500, 600, 0.12, 0.3);
+        this.tone('sawtooth', 900, 120, 0.12, 0.1);
+        this.tone('sine', 90, 40, 0.3, 0.3, 0.03);
+        break;
       case 'coin':
         this.tone('square', 1568, 1568, 0.05, 0.04);
         this.tone('square', 2093, 2093, 0.09, 0.04, 0.05);
@@ -229,22 +266,27 @@ const Sfx = {
   onEvent(type, d) {
     switch (type) {
       case 'shoot':
-        if (d.kind === 'arrow') this.play('arrow');
-        else if (d.kind === 'shell') this.play('cannon');
+        if (d.kind === 'bolt') this.play({ ember: 'vial', orb: 'vial', icicle: 'chime', harpoon: 'snipe', bee: 'buzz' }[d.skin] || 'arrow');
+        else if (d.kind === 'shell') this.play(d.skin === 'vial' || d.skin === 'tar' ? 'vial' : 'cannon');
         else if (d.kind === 'rocket') this.play('rocket');
-        else if (d.kind === 'vial') this.play('vial');
-        else if (d.kind === 'snipe') this.play('snipe');
+        else if (d.kind === 'snipe') this.play({ spear: 'arrow', tracer: 'tick', rail: 'rail', scythe: 'slash' }[d.skin] || 'snipe');
         else if (d.kind === 'flame') this.play('flame');
         else if (d.kind === 'beam') this.play('beam');
+        else if (d.kind === 'trap') this.play('click');
         else if (d.kind === 'lord') this.play('lord');
         break;
+      case 'nova': this.play({ bell: 'bell', ice: 'freeze', quake: 'boom', void: 'warp', time: 'bell' }[d.skin] || 'bell'); break;
+      case 'exec': this.play('slash'); break;
       case 'cast':
         if (d.kind === 'pillar') this.play('slam');
         else if (d.kind === 'meteor') this.play('sky');
         break;
-      case 'burst': this.play(d.kind === 'shock' ? 'shock' : d.kind === 'pillar' ? 'pillar' : 'meteor'); break;
+      case 'burst': this.play({ shock: 'shock', pillar: 'pillar', thunder: 'thunder' }[d.kind] || 'meteor'); break;
       case 'sear': this.play('sear'); break;
-      case 'explode': this.play(d.kind === 'shell' ? 'boom' : d.kind === 'vial' ? 'splat' : 'pop'); break;
+      case 'explode':
+        if (d.kind === 'shell') this.play(d.skin === 'vial' || d.skin === 'tar' ? 'splat' : 'boom');
+        else this.play('pop');
+        break;
       case 'income': this.play('coin'); break;
       case 'bolt': this.play('zap'); break;
       case 'kill': this.play('kill'); break;
