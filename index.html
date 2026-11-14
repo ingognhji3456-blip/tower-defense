@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>철벽 요새</title>
-<meta name="description" content="몰려오는 괴수 떼로부터 성문을 지키는 타워 디펜스 게임. 탑을 세우고 강화해 서른 번의 습격을 막아내세요.">
+<meta name="description" content="몰려오는 괴수 떼로부터 성문을 지키는 타워 디펜스 게임. 탑을 뽑아 편성하고 열두 스테이지를 차례로 지켜내세요.">
 <meta name="theme-color" content="#232a3d">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,44 +12,47 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<div id="app">
-  <header class="hud">
-    <div class="stat lives" id="stat-lives" title="목숨">
-      <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M10 17.5S3 13 3 8.2A3.8 3.8 0 0 1 10 6a3.8 3.8 0 0 1 7 2.2c0 4.8-7 9.3-7 9.3z"/></svg>
-      <b id="hud-lives">20</b>
-    </div>
-    <div class="stat coin" title="골드">
-      <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M10 1.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM7.2 7.2h5.6v5.6H7.2z"/></svg>
-      <b id="hud-gold">220</b>
-    </div>
-    <div class="stat">
-      <span class="sub stage-tag" id="hud-stage"></span><span class="sub">웨이브</span><b id="hud-wave">0</b><span class="sub" id="hud-of">/30</span>
+<!-- 게임 화면: 전장이 화면 전체를 덮고, 상황판과 건설 서랍이 그 위에 얹힌다 -->
+<div id="app" hidden>
+  <main class="stage" id="stage">
+    <canvas id="board" aria-label="전장. 빈 땅을 눌러 탑을 세웁니다."></canvas>
+  </main>
+
+  <header class="hud" id="hud">
+    <div class="hud-stats glass">
+      <div class="stat lives" id="stat-lives" title="목숨">
+        <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M10 17.5S3 13 3 8.2A3.8 3.8 0 0 1 10 6a3.8 3.8 0 0 1 7 2.2c0 4.8-7 9.3-7 9.3z"/></svg>
+        <b id="hud-lives">20</b>
+      </div>
+      <div class="stat coin" title="골드">
+        <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M10 1.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM7.2 7.2h5.6v5.6H7.2z"/></svg>
+        <b id="hud-gold">220</b>
+      </div>
+      <div class="stat">
+        <span class="sub stage-tag" id="hud-stage"></span><span class="sub">웨이브</span><b id="hud-wave">0</b><span class="sub" id="hud-of">/30</span>
+      </div>
     </div>
     <div class="hud-btns">
-      <button class="icon-btn" id="btn-speed" type="button" aria-label="게임 속도" title="게임 속도">1×</button>
-      <button class="icon-btn" id="btn-pause" type="button" aria-label="일시정지" aria-pressed="false" title="일시정지 (P)">
+      <button class="icon-btn glass" id="btn-speed" type="button" aria-label="게임 속도" title="게임 속도 (F)">1×</button>
+      <button class="icon-btn glass" id="btn-pause" type="button" aria-label="일시정지" aria-pressed="false" title="일시정지 (P)">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M5 3.5h3.5v13H5zM11.5 3.5H15v13h-3.5z"/></svg>
       </button>
-      <button class="icon-btn sound-toggle" id="btn-sound" type="button" aria-label="소리" aria-pressed="true" title="소리">
+      <button class="icon-btn glass sound-toggle" id="btn-sound" type="button" aria-label="소리" aria-pressed="true" title="소리">
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <path fill="currentColor" d="M3 7.5h3L10.5 4v12L6 12.5H3z"/>
           <path class="on-mark" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M13 7.2a4 4 0 0 1 0 5.6M15.2 5a7 7 0 0 1 0 10"/>
           <path class="off-mark" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M13 7.5l4.5 5M17.5 7.5l-4.5 5"/>
         </svg>
       </button>
-      <button class="icon-btn" id="btn-menu" type="button" aria-label="메뉴" title="메뉴">
+      <button class="icon-btn glass" id="btn-menu" type="button" aria-label="메뉴" title="메뉴">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6h12M4 10h12M4 14h12"/></svg>
       </button>
     </div>
   </header>
 
-  <main class="stage" id="stage">
-    <canvas id="board" aria-label="전장. 빈 땅을 눌러 탑을 세웁니다."></canvas>
-    <div class="toast" id="toast" role="status" hidden></div>
-  </main>
-
+  <!-- 건설 서랍: 화면 아래 가운데 -->
   <aside class="tray" id="tray">
-    <section class="panel" id="wavebox" aria-label="웨이브">
+    <section class="panel glass" id="wavebox" aria-label="웨이브">
       <div class="wave-info">
         <span class="label" id="wave-label">다음</span>
         <div class="chips" id="wave-chips"></div>
@@ -61,7 +64,7 @@
       </div>
     </section>
 
-    <section class="panel" id="placing" hidden>
+    <section class="panel glass" id="placing" hidden>
       <div class="placing-text">
         <div class="row"><strong id="plc-name"></strong><span class="stats" id="plc-stats"></span></div>
         <p class="blurb" id="plc-blurb"></p>
@@ -71,7 +74,7 @@
 
     <section id="shop" aria-label="탑"></section>
 
-    <section class="panel" id="selected" hidden>
+    <section class="panel glass" id="selected" hidden>
       <div class="row"><strong id="sel-name"></strong><span class="lvl" id="sel-level"></span><span class="stats" id="sel-stats"></span></div>
       <div class="actions-row">
         <button class="btn up" id="btn-upgrade" type="button"></button>
@@ -83,7 +86,7 @@
   </aside>
 </div>
 
-<!-- 로비 뒤로 흐르는 전투 장면 -->
+<!-- 로비와 그 아래 화면들 뒤로 흐르는 전투 장면 -->
 <div id="backdrop"><canvas id="hero" aria-hidden="true"></canvas></div>
 
 <!-- 로비 -->
@@ -91,39 +94,51 @@
   <div class="lobby-ui">
     <p class="eyebrow">타워 디펜스</p>
     <h1>철벽 요새</h1>
-    <p class="lede">괴수 떼가 굴에서 쏟아져 나와 성문으로 몰려옵니다. 탑을 세우고 강화해 열두 전장을 차례로 지켜내세요.</p>
+    <p class="lede">괴수 떼가 굴에서 쏟아져 나와 성문으로 몰려옵니다. 탑을 뽑아 다섯 개를 골라 들고, 열두 전장을 차례로 지켜내세요.</p>
     <div class="progress" id="lobby-progress"></div>
     <div class="lobby-actions">
       <button class="btn primary big" id="btn-play" type="button">스테이지 선택</button>
       <button class="btn big" id="btn-continue" type="button" hidden></button>
       <div class="lobby-row">
+        <button class="btn" id="btn-gacha" type="button">탑 뽑기</button>
+        <button class="btn" id="btn-inventory" type="button">탑 편성</button>
         <button class="btn" id="btn-challenge" type="button">도전 모드</button>
         <button class="btn" id="btn-codex" type="button">도감</button>
-        <button class="btn sound-toggle" id="btn-sound2" type="button" aria-pressed="true">소리 켜짐</button>
       </div>
-      <p class="lobby-hint" id="lobby-hint"></p>
+      <div class="lobby-foot">
+        <p class="lobby-hint" id="lobby-hint"></p>
+        <button class="btn ghost small sound-toggle" id="btn-sound2" type="button" aria-pressed="true">소리 켜짐</button>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- 스테이지 선택 -->
 <div class="screen" id="stages" hidden>
-  <div class="board-screen">
+  <div class="full-ui">
     <header class="screen-head">
       <button class="btn ghost" id="btn-stages-back" type="button">← 로비</button>
       <h2>스테이지 선택</h2>
-      <span class="stars-total" id="stages-total"></span>
+      <span class="pill gold" id="stages-total"></span>
     </header>
-    <div class="stage-layout">
-      <div class="stage-grid" id="stage-grid" role="radiogroup" aria-label="스테이지"></div>
-      <section class="stage-detail" aria-live="polite">
-        <canvas id="stage-thumb" width="480" height="300" aria-hidden="true"></canvas>
+    <div class="stages-body">
+      <div class="trail" id="trail">
+        <svg class="trail-line" id="trail-line" aria-hidden="true"><path id="trail-path"></path><path id="trail-done"></path></svg>
+        <div class="trail-nodes" id="stage-grid" role="radiogroup" aria-label="스테이지"></div>
+      </div>
+      <section class="stage-detail glass" aria-live="polite">
+        <canvas id="stage-thumb" width="540" height="330" aria-hidden="true"></canvas>
         <div class="stage-info">
           <p class="eyebrow" id="stage-no"></p>
           <h3 id="stage-name"></h3>
           <p class="stage-meta" id="stage-meta"></p>
           <div class="chips wrap" id="stage-enemies"></div>
           <p class="stage-note" id="stage-note"></p>
+          <div class="squad">
+            <span class="label">출전 탑</span>
+            <div class="squad-icons" id="stage-squad"></div>
+            <button class="btn ghost small" id="btn-squad-edit" type="button">편성</button>
+          </div>
           <button class="btn primary big" id="btn-stage-start" type="button">시작</button>
         </div>
       </section>
@@ -131,38 +146,91 @@
   </div>
 </div>
 
+<!-- 탑 뽑기 -->
+<div class="screen" id="gacha" hidden>
+  <div class="full-ui mid">
+    <header class="screen-head">
+      <button class="btn ghost" id="btn-gacha-back" type="button">← 로비</button>
+      <h2>탑 뽑기</h2>
+      <span class="pill" id="gacha-gems"></span>
+    </header>
+    <div class="gacha-body glass">
+      <div class="gacha-stage" id="gacha-stage">
+        <canvas id="chest" width="420" height="340" aria-hidden="true"></canvas>
+        <div class="pull-cards" id="pull-cards" aria-live="polite"></div>
+      </div>
+      <div class="gacha-actions">
+        <button class="btn primary big" id="btn-pull1" type="button"></button>
+        <button class="btn big" id="btn-pull5" type="button"></button>
+      </div>
+      <p class="odds" id="gacha-odds"></p>
+    </div>
+  </div>
+</div>
+
+<!-- 탑 편성(인벤토리) -->
+<div class="screen" id="inventory" hidden>
+  <div class="full-ui">
+    <header class="screen-head">
+      <button class="btn ghost" id="btn-inv-back" type="button">← 로비</button>
+      <h2>탑 편성</h2>
+      <span class="pill" id="inv-gems"></span>
+    </header>
+    <div class="inv-body">
+      <div class="inv-left">
+        <p class="label">출전 탑 <b id="inv-count"></b> — 전투에는 다섯 개까지 데려갈 수 있습니다</p>
+        <div class="slots" id="inv-slots"></div>
+        <p class="label">가진 탑</p>
+        <div class="inv-grid" id="inv-grid"></div>
+      </div>
+      <section class="inv-detail glass" aria-live="polite">
+        <canvas id="inv-art" width="540" height="300" aria-hidden="true"></canvas>
+        <h3 id="inv-name"></h3>
+        <p class="inv-blurb" id="inv-blurb"></p>
+        <p class="codex-stats" id="inv-stats"></p>
+        <p class="inv-rank" id="inv-rank"></p>
+        <button class="btn primary big" id="btn-equip" type="button"></button>
+      </section>
+    </div>
+  </div>
+</div>
+
 <!-- 도전 모드 -->
 <div class="screen" id="challenge" hidden>
-  <div class="board-screen narrow">
+  <div class="full-ui mid">
     <header class="screen-head">
       <button class="btn ghost" id="btn-challenge-back" type="button">← 로비</button>
       <h2>도전 모드</h2>
     </header>
-    <p class="lede">전장과 난이도를 골라 서른 웨이브를 버팁니다. 다 막아내면 무한 모드로 이어 갈 수 있습니다.</p>
-    <div class="field">
-      <span class="label" id="lbl-map">전장</span>
-      <div class="maps" id="maps" role="radiogroup" aria-labelledby="lbl-map"></div>
-      <p class="map-note" id="map-note"></p>
+    <div class="glass pad">
+      <p class="lede">전장과 난이도를 골라 서른 웨이브를 버팁니다. 다 막아내면 무한 모드로 이어 갈 수 있습니다.</p>
+      <div class="field">
+        <span class="label" id="lbl-map">전장</span>
+        <div class="maps" id="maps" role="radiogroup" aria-labelledby="lbl-map"></div>
+        <p class="map-note" id="map-note"></p>
+      </div>
+      <div class="field">
+        <span class="label" id="lbl-diff">난이도</span>
+        <div class="seg" id="diffs" role="radiogroup" aria-labelledby="lbl-diff"></div>
+      </div>
+      <button class="btn primary big wide" id="btn-challenge-start" type="button">시작</button>
     </div>
-    <div class="field">
-      <span class="label" id="lbl-diff">난이도</span>
-      <div class="seg" id="diffs" role="radiogroup" aria-labelledby="lbl-diff"></div>
-    </div>
-    <button class="btn primary big wide" id="btn-challenge-start" type="button">시작</button>
   </div>
 </div>
 
 <!-- 도감 -->
 <div class="screen" id="codex" hidden>
-  <div class="board-screen">
+  <div class="full-ui">
     <header class="screen-head">
       <button class="btn ghost" id="btn-codex-back" type="button">← 로비</button>
       <h2>도감</h2>
     </header>
-    <h3 class="codex-title">탑</h3>
-    <div class="codex-list" id="codex-towers"></div>
-    <h3 class="codex-title">괴수</h3>
-    <div class="codex-list" id="codex-enemies"></div>
+    <div class="glass pad">
+      <h3 class="codex-title">괴수</h3>
+      <div class="codex-list" id="codex-enemies"></div>
+      <h3 class="codex-title">탑</h3>
+      <div class="codex-list" id="codex-towers"></div>
+    </div>
   </div>
 </div>
 
@@ -187,6 +255,7 @@
     <h2 id="result-title"></h2>
     <div class="stars" id="result-stars" hidden><span>★</span><span>★</span><span>★</span></div>
     <p class="lede" id="result-text"></p>
+    <p class="gain" id="result-gems" hidden></p>
     <dl class="tally">
       <div><dt>막아낸 웨이브</dt><dd id="tally-wave">0</dd></div>
       <div><dt>물리친 적</dt><dd id="tally-kills">0</dd></div>
@@ -203,6 +272,8 @@
   </div>
 </div>
 
+<div class="toast" id="toast" role="status" hidden></div>
+
 <script src="js/data.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/art/common.js"></script>
@@ -211,6 +282,12 @@
 <script src="js/art/tower-frost.js"></script>
 <script src="js/art/tower-rocket.js"></script>
 <script src="js/art/tower-tesla.js"></script>
+<script src="js/art/tower-poison.js"></script>
+<script src="js/art/tower-sniper.js"></script>
+<script src="js/art/tower-mine.js"></script>
+<script src="js/art/tower-flame.js"></script>
+<script src="js/art/tower-laser.js"></script>
+<script src="js/art/tower-lord.js"></script>
 <script src="js/art/enemy-ant.js"></script>
 <script src="js/art/enemy-wolf.js"></script>
 <script src="js/art/enemy-beetle.js"></script>
@@ -219,6 +296,7 @@
 <script src="js/art/enemy-raptor.js"></script>
 <script src="js/art/enemy-dragon.js"></script>
 <script src="js/art/terrain.js"></script>
+<script src="js/art/ui.js"></script>
 <script src="js/render.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/main.js"></script>

@@ -1,6 +1,6 @@
 'use strict';
 /* 석궁탑 — 모서리를 앞에 둔 네모 망루 위에 큰 석궁을 얹었다.
-   1단: 통나무로 짠 망루.  2단: 아래를 돌로 쌓고 난간에 방패를 건 망루.  3단: 돌탑에 초록 기와지붕과 걸개를 단 망루. */
+   1단: 통나무로 짠 망루.  2단: 돌로 쌓은 몸통 위에 나무 망대를 올리고 난간에 방패를 건 망루.  3단: 돌탑에 초록 기와지붕과 걸개를 단 망루. */
 (function () {
   const S = ART.stone;
   const W = ART.wood;
@@ -14,7 +14,7 @@
   /* deck: 마루 윗면 높이, w: 마루 반너비, stone: 돌로 쌓은 부분의 윗면(없으면 null) */
   const DIM = [
     { deck: -0.5, w: 0.33, stone: null },
-    { deck: -0.68, w: 0.34, stone: -0.14 },
+    { deck: -0.68, w: 0.34, stone: -0.36 },
     { deck: -0.86, w: 0.38, stone: -0.78 },
   ];
   const LINE = 'rgba(43,37,54,.28)';
@@ -136,7 +136,12 @@
         const wt = level === 2 ? 0.29 : 0.31;
         if (level === 1) frame(ctx, under, d.stone, d.w - 0.05, wt);
         artBox(ctx, S, 0, d.stone, GROUND, wt, wb, { topFill: S[0] });
-        courses(ctx, d.stone, GROUND, wt, wb, level === 2 ? 6 : 3);
+        courses(ctx, d.stone, GROUND, wt, wb, level === 2 ? 6 : 4);
+        if (level === 1) {
+          /* 돌벽 위를 두른 갓돌: 나무 뼈대가 이 위에 올라앉는다 */
+          artPoly(ctx, S[0], [-wt - 0.02, d.stone, 0, d.stone + (wt + 0.02) * K, 0, d.stone + (wt + 0.02) * K + 0.035, -wt - 0.02, d.stone + 0.035]);
+          artPoly(ctx, S[1], [wt + 0.02, d.stone, 0, d.stone + (wt + 0.02) * K, 0, d.stone + (wt + 0.02) * K + 0.035, wt + 0.02, d.stone + 0.035]);
+        }
         /* 문 */
         artPoly(ctx, D[1], [-0.21, 0.3, -0.21, 0.14, -0.15, 0.1, -0.09, 0.19, -0.09, 0.345]);
         artLine(ctx, D[2], [-0.15, 0.115, -0.15, 0.32], 0.012);

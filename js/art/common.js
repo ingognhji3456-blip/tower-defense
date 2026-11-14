@@ -351,6 +351,80 @@ function artIvy(ctx, pts) {
   }
 }
 
+/* ───────── 탑 몸통을 짓는 도우미 ───────── */
+
+/* 그림자와 두 단짜리 둥근 기단 */
+function artPlinth(ctx, tones, topFill) {
+  artShadow(ctx, 0.07, 0.33, 0.47, 0.15);
+  artCylinder(ctx, [tones[1], tones[2], tones[2]], 0, 0.27, 0.32, 0.44, 0.45, { topFill: tones[1] });
+  artCylinder(ctx, tones, 0, 0.2, 0.27, 0.39, 0.4, { topFill: topFill || tones[0] });
+}
+
+/* 둥근 탑의 앞면을 감싸는 띠 */
+function artHoop(ctx, x, y, r, color, width, outlined) {
+  const arc = () => {
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * ART.K, 0, 0.1, Math.PI - 0.1);
+  };
+  ctx.lineCap = 'round';
+  if (outlined) {
+    arc();
+    ctx.strokeStyle = ART.OUT;
+    ctx.lineWidth = width + ART.LW * 1.6;
+    ctx.stroke();
+  }
+  arc();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.stroke();
+}
+
+/* 둥근 탑의 돌 켜와 벽돌 금. 위아래 반지름이 달라도 된다. */
+function artCourses(ctx, x, yTop, yBot, rTop, rBot, rows, rgb) {
+  const c = rgb || '43,37,54';
+  const rAt = (y) => rTop + ((rBot - rTop) * (y - yTop)) / (yBot - yTop);
+  const step = (yBot - yTop) / (rows + 1);
+  for (let i = 1; i <= rows; i++) {
+    const y = yBot - step * i;
+    artHoop(ctx, x, y, rAt(y), 'rgba(' + c + ',.3)', 0.013);
+    for (let k = -2; k <= 2; k++) {
+      const a = Math.PI / 2 + (k + (i % 2) * 0.5) * 0.52;
+      const px = x + Math.cos(a) * rAt(y);
+      const py = y + Math.sin(a) * rAt(y) * ART.K;
+      artLine(ctx, 'rgba(' + c + ',.22)', [px, py + 0.01, px, py + step - 0.01], 0.011);
+    }
+  }
+}
+
+/* 아치 모양(문·창). (x, yBase) 는 바닥 가운데. */
+function artArch(ctx, fill, x, yBase, halfW, hgt, lw) {
+  ctx.beginPath();
+  ctx.moveTo(x - halfW, yBase);
+  ctx.lineTo(x - halfW, yBase - hgt + halfW);
+  ctx.arc(x, yBase - hgt + halfW, halfW, Math.PI, 0);
+  ctx.lineTo(x + halfW, yBase);
+  ctx.closePath();
+  artFill(ctx, fill, lw);
+}
+
+/* 2차 곡선을 꺾은선 좌표로 */
+function artCurve(x0, y0, cx, cy, x1, y1, n) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const u = 1 - t;
+    pts.push(u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1);
+  }
+  return pts;
+}
+
+/* 네 갈래로 반짝이는 빛 */
+function artSparkle(ctx, x, y, s, color, alpha) {
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  artPoly(ctx, color || '#ffffff', [x, y - s, x + s * 0.25, y - s * 0.25, x + s, y, x + s * 0.25, y + s * 0.25, x, y + s, x - s * 0.25, y + s * 0.25, x - s, y, x - s * 0.25, y - s * 0.25], 0);
+  ctx.globalAlpha = 1;
+}
+
 /* ───────── 그리기 진입점 ───────── */
 
 function drawTowerSprite(ctx, type, level, aim, o) {

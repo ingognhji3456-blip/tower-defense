@@ -94,10 +94,16 @@ class Game {
     this.diffId = !this.stage && DIFFICULTY[opts.diff] ? opts.diff : 'normal';
     this.diff = DIFFICULTY[this.diffId];
     this.finalWave = this.stage ? this.stage.waves.length : FINAL_WAVE;
-    this.allowed = this.stage ? this.stage.towers : TOWER_ORDER;
+    /* 전투에 데려온 탑(최대 다섯)과 그 탑들의 등급. 주지 않으면 모든 탑을 등급 없이 쓴다. */
+    this.allowed = (opts.loadout || TOWER_ORDER).filter((t) => TOWERS[t]).slice(0, opts.loadout ? LOADOUT_MAX : TOWER_ORDER.length);
+    this.ranks = opts.ranks || {};
+    this.lvCache = {};
+    this.carry = 0; // 처치 보상의 소수점 아래 몫을 모아 두는 곳
     this.rand = mulberry32(opts.seed || 20251114);
 
     this.paths = this.map.paths.map((w) => new TrackPath(w));
+    /* 도전 모드: 길이 길수록 탑이 적을 오래 때리므로, 길 길이에 맞춰 적의 체력을 조절해 지도마다 난이도를 고르게 한다 */
+    this.ease = Math.max(0.55, Math.min(1.5, this.paths.reduce((n, q) => n + q.length, 0) / this.paths.length / CHALLENGE_PATH));
     this.grid = new Uint8Array(COLS * ROWS);
     for (const w of this.map.paths) {
       for (let i = 1; i < w.length; i++) {
@@ -138,6 +144,7 @@ class Game {
     this.towers = [];
     this.enemies = [];
     this.shots = [];
+    this.minions = []; // 군주가 부른 박쥐들
     this.queue = [];
     this.qi = 0;
     this.waveTime = 0;
@@ -164,7 +171,7 @@ class Game {
   }
 
   hpAt(wave) {
-    return this.stage ? this.stage.hp * Math.pow(STAGE_GROWTH, wave - 1) : hpScale(wave) * this.diff.hp;
+    return this.stage ? this.stage.hp * Math.pow(STAGE_GROWTH, wave - 1) : hpScale(wave) * this.diff.hp * this.ease;
   }
 
   armorAt(wave) {
@@ -227,7 +234,11 @@ class Game {
       cx: tx + 0.5,
       cy: ty + 0.5,
       cd: 0,
-      mode: 'first',
+      mode: def.mode || 'first',
+      tick: 0,
+      beam: null,
+      beamT: 0,
+      beamAcc: 0,
       invested: def.levels[0].cost,
       fresh: this.phase === 'build',
       aimX: tx + 1.5,
@@ -237,6 +248,8 @@ class Game {
       burst: 0,
       burstT: 0,
       burstList: [],
+      cast: 0, // 군주: 소환 몸짓이 남은 시간
+      summon: 1.2, // 군주: 다음 소환까지 남은 시간
       kills: 0,
       dealt: 0,
     };
@@ -245,15 +258,29 @@ class Game {
       const d = (s.x - t.cx) ** 2 + (s.y - t.cy) ** 2;
       if (d < best) { best = d; t.aimX = s.x; t.aimY = s.y; }
     }
+    t.lv = this.lvOf(type, 0);
+    if (t.lv.every) t.tick = t.lv.every;
     this.towers.push(t);
     this.grid[ty * COLS + tx] = TILE_TOWER;
     return t;
+  }
+
+  /* 등급을 반영한 탑의 단계별 수치 */
+  lvOf(type, level) {
+    const key = type + level;
+    return this.lvCache[key] || (this.lvCache[key] = towerStats(type, level, this.ranks[type] | 0));
+  }
+
+  setLevel(t, level) {
+    t.level = level;
+    t.lv = this.lvOf(t.type, level);
   }
 
   build(type, tx, ty) {
     const def = TOWERS[type];
     if (!def || !this.allowed.includes(type) || !this.canBuild(tx, ty)) return null;
     if (this.phase === 'lost' || this.phase === 'won') return null;
+    if (def.unique && this.towers.some((o) => o.type === type)) return null;
     const cost = def.levels[0].cost;
     if (this.gold < cost) return null;
     this.gold -= cost;
@@ -273,8 +300,7 @@ class Game {
     if (cost == null || this.gold < cost) return false;
     if (this.phase === 'lost' || this.phase === 'won') return false;
     this.gold -= cost;
-    t.level++;
-    t.lv = t.def.levels[t.level];
+    this.setLevel(t, t.level + 1);
     t.invested += cost;
     this.emit('upgrade', { tower: t });
     return true;
@@ -291,6 +317,7 @@ class Game {
     const value = this.sellValue(t);
     this.gold += value;
     this.towers.splice(i, 1);
+    this.minions = this.minions.filter((m) => m.src !== t);
     this.grid[t.y * COLS + t.x] = TILE_FREE;
     this.emit('sell', { tower: t, value });
     return true;
@@ -338,7 +365,7 @@ class Game {
       speed: def.speed,
       armor: Math.round(def.armor * this.armorAt(w) * 10) / 10,
       phys: def.phys,
-      reward: Math.round(def.reward * this.rewardAt(w)),
+      reward: def.reward * this.rewardAt(w),
       lives: def.lives,
       boss: !!def.boss,
       path,
@@ -353,6 +380,9 @@ class Game {
       alive: true,
       age: 0,
       hitT: 0,
+      poison: 0,
+      poisonT: 0,
+      poisonSrc: null,
     };
     this.place(e);
     this.enemies.push(e);
@@ -379,10 +409,13 @@ class Game {
       this.moveEnemies(dt);
       if (this.phase === 'lost') return;
       this.updateTowers(dt);
+      this.updateMinions(dt);
     } else if (this.phase === 'build') {
       for (const t of this.towers) {
         t.recoil = Math.max(0, t.recoil - dt * 4);
         t.flash = Math.max(0, t.flash - dt * 3);
+        t.cast = Math.max(0, t.cast - dt);
+        t.beam = null;
       }
     }
     this.updateShots(dt);
@@ -413,6 +446,12 @@ class Game {
       if (!e.alive) continue;
       e.age += dt;
       if (e.hitT > 0) e.hitT -= dt;
+      if (e.poisonT > 0) {
+        e.poisonT -= dt;
+        this.hit(e, e.poison * dt, 'magic', e.poisonSrc, true);
+        if (!e.alive) continue;
+        if (e.poisonT <= 0) e.poison = 0;
+      }
       const slow = e.boss ? e.slow * 0.5 : e.slow;
       e.cur = e.speed * (1 - slow);
       e.dist += e.cur * dt;
@@ -460,6 +499,10 @@ class Game {
       t.recoil = Math.max(0, t.recoil - dt * 4);
       t.flash = Math.max(0, t.flash - dt * 3);
       if (t.def.kind === 'aura') continue;
+      if (t.type === 'mine') { this.runMine(t, dt); continue; }
+      if (t.type === 'flame') { this.runFlame(t, dt); continue; }
+      if (t.type === 'laser') { this.runLaser(t, dt); continue; }
+      if (t.type === 'lord') { this.runLord(t, dt); continue; }
       if (t.burst > 0) {
         t.burstT -= dt;
         while (t.burst > 0 && t.burstT <= 0) {
@@ -520,6 +563,25 @@ class Game {
         this.emit('shoot', { kind: 'volley', x: t.cx, y: t.cy, h: lv.h });
         break;
       }
+      case 'poison': {
+        const speed = 6;
+        const p = {};
+        let dur = Math.max(0.3, Math.hypot(target.x - t.cx, target.y - t.cy) / speed);
+        target.path.at(Math.min(target.path.length, target.dist + (target.cur || target.speed) * dur), p);
+        dur = Math.max(0.3, Math.hypot(p.x - t.cx, p.y - t.cy) / speed);
+        t.aimX = p.x;
+        t.aimY = p.y;
+        this.shots.push({
+          kind: 'vial', x: t.cx, y: t.cy, x0: t.cx, y0: t.cy, tx: p.x, ty: p.y, h: lv.h, h0: lv.h,
+          t: 0, dur, dmg: lv.dmg, dot: lv.dot, splash: lv.splash, src: t,
+        });
+        this.emit('shoot', { kind: 'vial', x: t.cx, y: t.cy, h: lv.h });
+        break;
+      }
+      case 'sniper':
+        this.hit(target, lv.dmg, 'phys', t);
+        this.emit('shoot', { kind: 'snipe', x: t.cx, y: t.cy, h: lv.h, tx: target.x, ty: target.y });
+        break;
       case 'tesla': {
         const chain = [target];
         let cur = target;
@@ -571,31 +633,220 @@ class Game {
     this.emit('shoot', { kind: 'rocket', x: t.cx, y: t.cy, h: lv.h });
   }
 
-  hit(e, dmg, kind, src) {
+  /* quiet: 조금씩 계속 들어가는 피해(독·불길·광선)라서 맞을 때마다 번쩍이지 않는다. */
+  hit(e, dmg, kind, src, quiet) {
     if (!e.alive) return;
     let d = dmg;
-    if (kind === 'phys') d = Math.max(d * 0.15, d - e.armor) * e.phys;
+    if (kind === 'phys') d = (src && src.def.pierce ? d : Math.max(d * 0.15, d - e.armor)) * e.phys;
     d *= e.vuln;
     e.hp -= d;
-    e.hitT = 0.12;
+    if (!quiet) e.hitT = 0.12;
     if (src) src.dealt += d;
     if (e.hp <= 0) {
       e.alive = false;
-      this.gold += e.reward;
+      /* 보상의 소수점 아래는 모아 두었다가 1골드가 되면 함께 준다 */
+      this.carry += e.reward;
+      const pay = Math.floor(this.carry + 1e-9);
+      this.carry -= pay;
+      this.gold += pay;
       this.stats.kills++;
-      this.stats.earned += e.reward;
+      this.stats.earned += pay;
       if (src) src.kills++;
-      this.emit('kill', { enemy: e, x: e.x, y: e.y, reward: e.reward });
+      this.emit('kill', { enemy: e, x: e.x, y: e.y, reward: pay });
     }
   }
 
+  /* 금광: 전투 중에 일정 시간마다 골드를 캔다 */
+  runMine(t, dt) {
+    t.tick -= dt;
+    if (t.tick > 0) return;
+    t.tick += t.lv.every;
+    this.gold += t.lv.income;
+    this.stats.earned += t.lv.income;
+    t.flash = 1;
+    this.emit('income', { tower: t, amount: t.lv.income });
+  }
+
+  /* 화염탑: 겨눈 쪽 부채꼴 안의 적을 모두 태운다 */
+  runFlame(t, dt) {
+    if (t.cd > 0) t.cd -= dt;
+    if (t.cd > 0) return;
+    const target = this.pickTarget(t);
+    if (!target) return;
+    const lv = t.lv;
+    t.cd = FLAME_TICK;
+    t.aimX = target.x;
+    t.aimY = target.y;
+    t.recoil = 1;
+    const ax = target.x - t.cx;
+    const ay = target.y - t.cy;
+    const al = Math.hypot(ax, ay) || 1;
+    const cos = Math.cos(lv.cone);
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - t.cx;
+      const dy = e.y - t.cy;
+      const d = Math.hypot(dx, dy);
+      if (d > lv.range + 0.15) continue;
+      if (d > 0.35 && (dx * ax + dy * ay) / (d * al) < cos) continue;
+      this.hit(e, lv.dps * FLAME_TICK, 'magic', t, true);
+    }
+    this.emit('shoot', { kind: 'flame', x: t.cx, y: t.cy, h: lv.h, tx: target.x, ty: target.y, range: lv.range });
+  }
+
+  /* 광선탑: 한 적을 계속 비추고, 오래 비출수록 피해가 커진다 */
+  runLaser(t, dt) {
+    const lv = t.lv;
+    let b = t.beam;
+    if (b && (!b.alive || (b.x - t.cx) ** 2 + (b.y - t.cy) ** 2 > (lv.range + 0.2) ** 2)) b = null;
+    if (!b) {
+      b = this.pickTarget(t);
+      t.beamT = 0;
+    }
+    t.beam = b;
+    if (!b) return;
+    t.beamT += dt;
+    t.aimX = b.x;
+    t.aimY = b.y;
+    t.recoil = 1;
+    this.hit(b, lv.dps * this.beamPower(t) * dt, 'magic', t, true);
+    t.beamAcc -= dt;
+    if (t.beamAcc <= 0) {
+      t.beamAcc = 0.3;
+      this.emit('shoot', { kind: 'beam', x: t.cx, y: t.cy, h: lv.h });
+    }
+    if (!b.alive) t.beam = null;
+  }
+
+  /* 군주: 두 손의 쌍광선이 겨눈 적을 꿰뚫고 그 둘레까지 터뜨린다. 때때로 박쥐 떼를 부른다. */
+  runLord(t, dt) {
+    const lv = t.lv;
+    if (t.cast > 0) t.cast = Math.max(0, t.cast - dt);
+    if (t.cd > 0) t.cd -= dt;
+    if (t.summon > 0) t.summon -= dt;
+    const target = this.pickTarget(t);
+    if (!target) return;
+    t.aimX = target.x;
+    t.aimY = target.y;
+    if (t.summon <= 0) {
+      t.summon = LORD_SUMMON;
+      t.cast = LORD_CAST;
+      t.cd = Math.max(t.cd, 0.45); /* 소환 몸짓이 끝난 뒤에 쏜다 */
+      for (let i = 0; i < lv.bats; i++) {
+        const a = (i / lv.bats) * Math.PI * 2 + this.rand() * 0.8;
+        this.minions.push({
+          id: this.nextId++, src: t, level: t.level, dps: lv.batDps, life: LORD_BAT_TIME, age: -i * 0.07,
+          x: t.cx, y: t.cy - 0.1, dx: 1, dy: 1, target: null, bite: false, nip: 0,
+          ox: Math.cos(a) * 0.16, oy: Math.sin(a) * 0.1, ph: this.rand() * 6.28,
+        });
+      }
+      this.emit('summon', { tower: t, n: lv.bats });
+      return;
+    }
+    if (t.cd > 0) return;
+    t.cd = lv.cd;
+    t.recoil = 1;
+    t.flash = 1;
+    const x = target.x;
+    const y = target.y;
+    this.hit(target, lv.dmg, 'magic', t);
+    for (const e of this.enemies) {
+      if (!e.alive || e === target) continue;
+      const reach = lv.splash + e.r * 0.5;
+      const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
+      if (d2 > reach * reach) continue;
+      this.hit(e, lv.dmg * LORD_SPLASH * (1 - (SPLASH_FALLOFF * Math.sqrt(d2)) / reach), 'magic', t);
+    }
+    this.emit('shoot', { kind: 'lord', tower: t, x: t.cx, y: t.cy, h: lv.h, tx: x, ty: y, r: lv.splash, er: target.r });
+  }
+
+  /* 박쥐: 군주 가까이의 적에게 날아가 달라붙어 물어뜯는다. 적이 쓰러지면 다음 적을 찾고, 시간이 다하면 사라진다. */
+  updateMinions(dt) {
+    const list = this.minions;
+    if (!list.length) return;
+    for (const m of list) {
+      m.age += dt;
+      if (m.age < 0) continue; /* 한 마리씩 차례로 날아오른다 */
+      m.life -= dt;
+      const t = m.src;
+      let e = m.target;
+      if (e && !e.alive) e = m.target = null;
+      if (!e && m.life > 0) {
+        /* 군주의 사거리 안팎에서 가장 가까운 적 */
+        const reach = (t.lv.range + 1) ** 2;
+        let best = Infinity;
+        for (const o of this.enemies) {
+          if (!o.alive || (o.x - t.cx) ** 2 + (o.y - t.cy) ** 2 > reach) continue;
+          const d = (o.x - m.x) ** 2 + (o.y - m.y) ** 2;
+          if (d < best) { best = d; e = o; }
+        }
+        m.target = e;
+      }
+      let tx;
+      let ty;
+      if (e && m.life > 0) {
+        tx = e.x + m.ox;
+        ty = e.y + m.oy - e.r * 0.3;
+      } else {
+        /* 물 적이 없으면 군주 머리 위를 맴돈다 */
+        tx = t.cx + Math.cos(m.age * 2.2 + m.ph) * 0.55;
+        ty = t.cy - 0.5 + Math.sin(m.age * 2.2 + m.ph) * 0.22;
+      }
+      const dx = tx - m.x;
+      const dy = ty - m.y;
+      const d = Math.hypot(dx, dy);
+      const step = 6.5 * dt;
+      if (d <= step || (m.bite && d < 0.5)) {
+        m.x = tx;
+        m.y = ty;
+        if (e && m.life > 0) {
+          m.bite = true;
+          this.hit(e, m.dps * dt, 'magic', t, true);
+          m.nip -= dt;
+          if (m.nip <= 0) {
+            m.nip = 0.4;
+            this.emit('bite', { x: m.x, y: m.y });
+          }
+        } else {
+          m.bite = false;
+        }
+      } else {
+        m.bite = false;
+        m.x += (dx / d) * step;
+        m.y += (dy / d) * step;
+        if (Math.abs(dx) > 0.05) m.dx = Math.sign(dx);
+        if (Math.abs(dy) > 0.05) m.dy = Math.sign(dy);
+      }
+      if (m.life <= 0) this.emit('poof', { x: m.x, y: m.y });
+    }
+    this.minions = list.filter((m) => m.life > 0);
+  }
+
+  beamPower(t) {
+    return 1 + Math.min(2, t.beamT * BEAM_RAMP);
+  }
+
+  /* 독병이 깨진 자리: 조금 다치고, 독이 든다. 독은 겹치지 않고 더 센 쪽으로 새로 든다. */
+  splashPoison(s) {
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const reach = s.splash + e.r * 0.5;
+      if ((e.x - s.tx) ** 2 + (e.y - s.ty) ** 2 > reach * reach) continue;
+      this.hit(e, s.dmg, 'magic', s.src);
+      if (!e.alive) continue;
+      if (s.dot >= e.poison) { e.poison = s.dot; e.poisonSrc = s.src; }
+      e.poisonT = POISON_TIME;
+    }
+  }
+
+  /* 폭발: 한가운데는 온전한 피해, 가장자리로 갈수록 절반 가까이까지 약해진다. */
   explode(x, y, radius, dmg, src) {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const reach = radius + e.r * 0.5;
-      const dx = e.x - x;
-      const dy = e.y - y;
-      if (dx * dx + dy * dy <= reach * reach) this.hit(e, dmg, 'phys', src);
+      const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
+      if (d2 > reach * reach) continue;
+      this.hit(e, dmg * (1 - SPLASH_FALLOFF * Math.sqrt(d2) / reach), 'phys', src);
     }
   }
 
@@ -620,15 +871,16 @@ class Game {
           s.x += s.vx * step;
           s.y += s.vy * step;
         }
-      } else if (s.kind === 'shell') {
+      } else if (s.kind === 'shell' || s.kind === 'vial') {
         s.t += dt;
         const k = Math.min(1, s.t / s.dur);
         s.x = s.x0 + (s.tx - s.x0) * k;
         s.y = s.y0 + (s.ty - s.y0) * k;
         s.h = s.h0 * (1 - k) + Math.sin(k * Math.PI) * (0.35 + s.dur * 0.5);
         if (k >= 1) {
-          this.explode(s.tx, s.ty, s.splash, s.dmg, s.src);
-          this.emit('explode', { kind: 'shell', x: s.tx, y: s.ty, r: s.splash });
+          if (s.kind === 'vial') this.splashPoison(s);
+          else this.explode(s.tx, s.ty, s.splash, s.dmg, s.src);
+          this.emit('explode', { kind: s.kind, x: s.tx, y: s.ty, r: s.splash });
           s.dead = true;
         }
       } else if (s.kind === 'rocket') {
@@ -671,6 +923,8 @@ class Game {
   }
 
   endWave() {
+    for (const m of this.minions) this.emit('poof', { x: m.x, y: m.y });
+    this.minions.length = 0;
     const bonus = this.bonusAt(this.wave);
     this.gold += bonus;
     this.stats.earned += bonus;
@@ -688,10 +942,12 @@ class Game {
 
   serialize() {
     return {
-      v: 3,
+      v: 4,
       stage: this.stage ? this.stage.id : null,
       map: this.map.id,
       diff: this.diffId,
+      loadout: this.allowed.slice(),
+      ranks: { ...this.ranks },
       gold: this.gold,
       lives: this.lives,
       wave: this.wave,
@@ -702,9 +958,9 @@ class Game {
   }
 
   static fromSave(d) {
-    if (!d || d.v !== 3 || !MAPS.some((m) => m.id === d.map)) return null;
+    if (!d || d.v !== 4 || !MAPS.some((m) => m.id === d.map)) return null;
     if (d.stage != null && !STAGES.some((st) => st.id === d.stage)) return null;
-    const g = new Game({ stage: d.stage, map: d.map, diff: d.diff });
+    const g = new Game({ stage: d.stage, map: d.map, diff: d.diff, loadout: Array.isArray(d.loadout) ? d.loadout : null, ranks: d.ranks });
     g.gold = Math.max(0, d.gold | 0);
     g.lives = Math.max(1, d.lives | 0);
     g.wave = Math.max(0, d.wave | 0);
@@ -713,8 +969,7 @@ class Game {
     for (const s of d.towers || []) {
       if (!TOWERS[s.t] || !g.canBuild(s.x | 0, s.y | 0)) continue;
       const t = g.addTower(s.t, s.x | 0, s.y | 0);
-      t.level = Math.max(0, Math.min(t.def.levels.length - 1, s.l | 0));
-      t.lv = t.def.levels[t.level];
+      g.setLevel(t, Math.max(0, Math.min(t.def.levels.length - 1, s.l | 0)));
       if (TARGET_MODES.some((m) => m.id === s.m)) t.mode = s.m;
       t.invested = Math.max(0, s.i | 0);
       t.fresh = false;

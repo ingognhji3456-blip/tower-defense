@@ -1,6 +1,7 @@
 'use strict';
 /* 철벽 요새 — 캔버스 렌더러.
-   시뮬레이션은 언제나 가로 16×10 좌표를 쓰고, 세로 화면에서는 여기서 x·y 를 맞바꿔 그린다.
+   시뮬레이션은 언제나 가로 18×11 좌표를 쓰고, 세로 화면에서는 여기서 x·y 를 맞바꿔 그린다.
+   캔버스는 화면 전체를 덮고, 카메라(cam)가 그 안에서 지도를 어디에 둘지 정한다. 지도 밖으로는 풀밭과 숲이 이어진다.
    탑과 나무는 칸보다 키가 크므로 화면 아래쪽(앞)에 있는 것이 위쪽(뒤)을 가리도록 순서를 매겨 그린다. */
 
 const FONT_DISPLAY = '"Black Han Sans", "Do Hyeon", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
@@ -34,12 +35,15 @@ class Renderer {
     this.transposed = false;
     this.cols = COLS;
     this.rows = ROWS;
-    this.w = 0;
+    this.w = 0; // 지도 그림의 크기(px): 숲 띠(pad)를 포함한다
     this.h = 0;
     this.pad = 0;
-    this.cam = null; /* 지도보다 작은 창으로 들여다볼 때의 창 왼쪽 위 좌표(px). 없으면 지도 전체를 그린다. */
+    this.cam = { x: 0, y: 0 }; // 화면 왼쪽 위에 놓이는 지도 그림 좌표(px)
     this.viewW = 0;
     this.viewH = 0;
+    this.inset = { top: 0, bottom: 0 };
+    this.still = true; // 카메라가 멈춰 있으면 땅을 한 번만 그려 두고 쓴다
+    this.clean = false; // 로비의 전투 장면: 체력 막대·숫자·알림을 빼고 깔끔하게
     this.dirty = true;
     this.cache = new Map();
     this.actors = [];
@@ -52,6 +56,8 @@ class Renderer {
     this.floaters = [];
     this.bolts = [];
     this.rings = [];
+    this.tracers = [];
+    this.twins = []; // 군주의 쌍광선
     this.banner = null;
     this.shake = 0;
     this.alarm = 0;
@@ -64,14 +70,40 @@ class Renderer {
     this.dirty = true;
   }
 
-  /* 주어진 상자 안에 가장 크게 들어가는 방향(가로/세로)을 골라 캔버스 크기를 정한다. */
-  resize(boxW, boxH) {
+  /* 게임 화면: 화면 전체를 덮고, 상황판(위)과 건설 서랍(아래)을 뺀 자리에 지도가 가장 크게 들어가도록
+     방향(가로/세로)과 타일 크기를 고른다. inset = { top, bottom, side } (px). */
+  fit(viewW, viewH, inset) {
     const dpr = Math.min(3, window.devicePixelRatio || 1);
-    const land = Math.min(boxW / COLS, boxH / (ROWS + PAD_TOP));
-    const port = Math.min(boxW / ROWS, boxH / (COLS + PAD_TOP));
+    const top = (inset && inset.top) || 0;
+    const bottom = (inset && inset.bottom) || 0;
+    const side = (inset && inset.side) || 0;
+    const safeW = Math.max(40, viewW - side * 2);
+    const safeH = Math.max(40, viewH - top - bottom);
+    const HEAD = 0.6; // 지도 위로 드러나는 숲 띠(타일). 나머지는 상황판 밑으로 들어간다.
+    const land = Math.min(safeW / COLS, safeH / (ROWS + HEAD));
+    const port = Math.min(safeW / ROWS, safeH / (COLS + HEAD));
     const transposed = port > land * 1.08;
     const ts = Math.max(8, Math.floor(Math.max(land, port) * dpr) / dpr);
-    if (ts === this.ts && dpr === this.dpr && transposed === this.transposed && this.w) return;
+    const key = [viewW, viewH, top, bottom, ts, dpr, transposed].join(',');
+    if (key === this.fitKey && this.still) return;
+    this.fitKey = key;
+    this.still = true;
+    this.inset = { top, bottom };
+    this.setScale(viewW, viewH, ts, dpr, transposed);
+    const slack = safeH - (this.rows + HEAD) * ts;
+    this.cam.x = Math.round(-(viewW - this.w) / 2 * dpr) / dpr;
+    this.cam.y = Math.round((this.pad - (top + HEAD * ts + slack / 2)) * dpr) / dpr;
+  }
+
+  /* 로비의 전투 장면: 타일 크기를 직접 정하고, 그 뒤 this.cam 을 움직여 지도 위를 옮겨 다닌다. */
+  setView(viewW, viewH, ts, dpr) {
+    this.still = false;
+    this.fitKey = '';
+    if (viewW === this.viewW && viewH === this.viewH && ts === this.ts && dpr === this.dpr && !this.transposed) return;
+    this.setScale(viewW, viewH, ts, dpr, false);
+  }
+
+  setScale(viewW, viewH, ts, dpr, transposed) {
     this.ts = ts;
     this.dpr = dpr;
     this.transposed = transposed;
@@ -80,27 +112,6 @@ class Renderer {
     this.pad = Math.round(PAD_TOP * ts * dpr) / dpr;
     this.w = this.cols * ts;
     this.h = this.rows * ts + this.pad;
-    this.canvas.style.width = this.w + 'px';
-    this.canvas.style.height = this.h + 'px';
-    this.canvas.width = Math.round(this.w * dpr);
-    this.canvas.height = Math.round(this.h * dpr);
-    this.cache.clear();
-    this.dirty = true;
-  }
-
-  /* 로비의 전투 장면처럼 지도의 일부만 가까이서 비출 때: 창 크기와 타일 크기를 직접 정한다.
-     그 뒤 this.cam 을 움직이면 창이 지도 위를 옮겨 다닌다. */
-  setView(viewW, viewH, ts, dpr) {
-    if (!this.cam) this.cam = { x: 0, y: 0 };
-    if (viewW === this.viewW && viewH === this.viewH && ts === this.ts && dpr === this.dpr) return;
-    this.ts = ts;
-    this.dpr = dpr;
-    this.transposed = false;
-    this.cols = COLS;
-    this.rows = ROWS;
-    this.pad = Math.round(PAD_TOP * ts * dpr) / dpr;
-    this.w = COLS * ts;
-    this.h = ROWS * ts + this.pad;
     this.viewW = viewW;
     this.viewH = viewH;
     this.canvas.width = Math.round(viewW * dpr);
@@ -117,16 +128,16 @@ class Renderer {
     this.dirty = true;
   }
 
-  /* 게임 좌표(타일) → 화면 픽셀 */
+  /* 게임 좌표(타일) → 지도 그림 좌표(px) */
   u(x, y) { return this.transposed ? y : x; }
   v(x, y) { return this.transposed ? x : y; }
   px(x, y) { return (this.transposed ? y : x) * this.ts; }
   py(x, y) { return (this.transposed ? x : y) * this.ts + this.pad; }
 
-  /* 캔버스 안 픽셀 → 게임 타일 */
+  /* 화면 안 픽셀 → 게임 타일 */
   tileAt(px, py) {
-    const a = Math.floor(px / this.ts);
-    const b = Math.floor((py - this.pad) / this.ts);
+    const a = Math.floor((px + this.cam.x) / this.ts);
+    const b = Math.floor((py + this.cam.y - this.pad) / this.ts);
     return this.transposed ? { x: b, y: a } : { x: a, y: b };
   }
 
@@ -174,97 +185,20 @@ class Renderer {
     return this.cache.get(key) || this.sprite(key, { x: r * 2.05, up: r * 2.35, down: r * 1.4 }, (g) => art.draw(g, r, (i / n) * art.period, { seed: 0 }));
   }
 
-  /* ───── 배경 (지형은 크기가 바뀔 때만 다시 그린다) ───── */
+  /* ───── 땅 ───── */
 
-  paintBackground() {
-    const { bg, ts, dpr, game, pad } = this;
+  /* 카메라가 멈춰 있을 때: 화면 크기의 땅 그림을 한 번 그려 둔다. */
+  paintGround(camX, camY) {
+    const { bg, dpr } = this;
     bg.width = this.canvas.width;
     bg.height = this.canvas.height;
     const g = bg.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const rand = mulberry32(977 + game.map.id.length * 31 + game.map.id.charCodeAt(0));
-
-    /* 풀밭 */
-    g.fillStyle = ART.grass[0];
-    g.fillRect(0, 0, this.w, this.h);
-    for (let y = 0; y < ROWS; y++) {
-      for (let x = 0; x < COLS; x++) {
-        if ((x + y) % 2 === 0) continue;
-        g.fillStyle = ART.grass[1];
-        g.fillRect(this.px(x, y), this.py(x, y), ts + 0.5, ts + 0.5);
-      }
-    }
-
-    /* 지도 위쪽 여백: 숲 가장자리 */
-    const rows = [[0.3, '#2f7a3a', 0.62], [0.62, '#3d9146', 0.56], [0.9, '#4fa64f', 0.46]];
-    for (const [f, color, rad] of rows) {
-      g.fillStyle = color;
-      for (let x = -0.3; x < this.cols + 0.6; x += 0.62) {
-        const jitter = (rand() - 0.5) * 0.2;
-        g.beginPath();
-        g.arc((x + jitter) * ts, pad * f + jitter * ts * 0.4, ts * rad * (0.85 + rand() * 0.3), 0, Math.PI * 2);
-        g.fill();
-      }
-    }
-    g.fillStyle = 'rgba(20,60,30,.22)';
-    g.fillRect(0, pad * 0.92, this.w, pad * 0.2);
-
-    /* 풀포기와 들꽃 */
-    g.lineCap = 'round';
-    for (let i = 0; i < 230; i++) {
-      const x = rand() * COLS;
-      const y = rand() * ROWS;
-      const px = this.px(x, y);
-      const py = this.py(x, y);
-      const kind = rand();
-      if (kind < 0.8) {
-        g.strokeStyle = kind < 0.4 ? ART.grassDark : ART.grassLight;
-        g.lineWidth = Math.max(1, ts * 0.03);
-        g.beginPath();
-        g.moveTo(px, py);
-        g.lineTo(px - ts * 0.04, py - ts * 0.1);
-        g.moveTo(px + ts * 0.05, py);
-        g.lineTo(px + ts * 0.08, py - ts * 0.08);
-        g.stroke();
-      } else {
-        g.fillStyle = kind < 0.87 ? '#ffffff' : kind < 0.94 ? '#ffe36a' : '#ff9ec4';
-        g.beginPath();
-        g.arc(px, py, Math.max(1, ts * 0.035), 0, Math.PI * 2);
-        g.fill();
-      }
-    }
-
-    /* 길 */
-    const trace = (path) => {
-      g.beginPath();
-      path.waypoints.forEach(([x, y], i) => {
-        const px = this.px(x + 0.5, y + 0.5);
-        const py = this.py(x + 0.5, y + 0.5);
-        if (i) g.lineTo(px, py);
-        else g.moveTo(px, py);
-      });
-    };
-    g.lineJoin = 'round';
-    g.lineCap = 'round';
-    for (const [color, width] of [['rgba(60,90,40,.35)', 0.98], [ART.pathEdge, 0.9], [ART.path, 0.76]]) {
-      g.strokeStyle = color;
-      g.lineWidth = ts * width;
-      for (const p of game.paths) { trace(p); g.stroke(); }
-    }
-    for (const s of game.samples) {
-      for (let k = 0; k < 2; k++) {
-        const x = s.x + (rand() - 0.5) * 0.6;
-        const y = s.y + (rand() - 0.5) * 0.6;
-        g.fillStyle = rand() > 0.5 ? 'rgba(150,115,60,.35)' : 'rgba(255,240,200,.4)';
-        g.beginPath();
-        g.ellipse(this.px(x, y), this.py(x, y), ts * (0.02 + rand() * 0.04), ts * (0.015 + rand() * 0.02), 0, 0, Math.PI * 2);
-        g.fill();
-      }
-    }
+    g.setTransform(dpr, 0, 0, dpr, -camX * dpr, -camY * dpr);
+    this.drawGround(g, camX, camY);
     this.dirty = false;
   }
 
-  /* 창으로 들여다볼 때의 땅: 보이는 곳만 그때그때 그린다. 지도 밖으로도 풀밭과 숲이 이어진다. */
+  /* 화면에 보이는 만큼의 땅을 그린다. 지도 밖으로도 풀밭과 숲, 나무와 바위가 이어진다. */
   drawGround(ctx, camX, camY) {
     const { ts, pad, game } = this;
     const vw = this.viewW;
@@ -286,6 +220,11 @@ class Renderer {
         if ((x + y) & 1) ctx.fillRect(x * ts, y * ts + pad, ts + 0.5, ts + 0.5);
       }
     }
+    /* 지도 바깥은 살짝 어둡게 해서 탑을 세울 수 있는 곳과 구분한다 */
+    ctx.fillStyle = 'rgba(30,70,40,.22)';
+    ctx.fillRect(camX - 2, pad, -camX + 2, vh + camY + 4);
+    ctx.fillRect(this.w, pad, camX + vw - this.w + 2, vh + camY + 4);
+    ctx.fillRect(0, this.h, this.w, camY + vh - this.h + 2);
 
     /* 풀포기와 들꽃 */
     ctx.lineCap = 'round';
@@ -341,15 +280,15 @@ class Renderer {
       for (const p of game.paths) {
         ctx.beginPath();
         p.waypoints.forEach(([x, y], i) => {
-          if (i) ctx.lineTo((x + 0.5) * ts, (y + 0.5) * ts + pad);
-          else ctx.moveTo((x + 0.5) * ts, (y + 0.5) * ts + pad);
+          if (i) ctx.lineTo(this.px(x + 0.5, y + 0.5), this.py(x + 0.5, y + 0.5));
+          else ctx.moveTo(this.px(x + 0.5, y + 0.5), this.py(x + 0.5, y + 0.5));
         });
         ctx.stroke();
       }
     }
     game.samples.forEach((s, i) => {
-      const sx = s.x * ts;
-      const sy = s.y * ts + pad;
+      const sx = this.px(s.x, s.y);
+      const sy = this.py(s.x, s.y);
       if (sx < camX - ts || sx > camX + vw + ts || sy < camY - ts || sy > camY + vh + ts) return;
       for (let k = 0; k < 2; k++) {
         ctx.fillStyle = hash(i, k + 5) > 0.5 ? 'rgba(150,115,60,.35)' : 'rgba(255,240,200,.4)';
@@ -362,10 +301,10 @@ class Renderer {
     /* 지도 바깥의 나무와 바위 */
     for (let y = ty0; y <= ty1; y++) {
       for (let x = tx0; x <= tx1; x++) {
-        if (x >= -1 && x <= COLS && y <= ROWS) continue;
+        if (x >= -1 && x <= this.cols && y <= this.rows) continue;
         const h = hash(x * 1.7, y * 2.3);
-        if (h > 0.2) continue;
-        const kind = h < 0.08 ? 'tree' : h < 0.15 ? 'pine' : 'rock';
+        if (h > 0.22) continue;
+        const kind = h < 0.09 ? 'tree' : h < 0.17 ? 'pine' : 'rock';
         const seed = Math.floor(h * 1000) % 9;
         const fn = TERRAIN_ART.deco[kind];
         if (fn) this.blit(ctx, this.sprite('d:' + kind + ':' + seed, BOX_DECO, (g) => fn(g, seed)), (x + 0.5) * ts, (y + 0.5) * ts + pad);
@@ -399,15 +338,78 @@ class Renderer {
     if (this.particles.length > 500) this.particles.splice(0, this.particles.length - 500);
   }
 
+  /* 화염탑의 불길: 분사구에서 겨눈 쪽으로 뻗어 나가며 커지는 불덩이들 */
+  flame(d) {
+    const u0 = this.u(d.x, d.y);
+    const v0 = this.v(d.x, d.y) - d.h;
+    const u1 = this.u(d.tx, d.ty);
+    const v1 = this.v(d.tx, d.ty) - 0.1;
+    const len = Math.hypot(u1 - u0, v1 - v0) || 1;
+    const du = (u1 - u0) / len;
+    const dv = (v1 - v0) / len;
+    const reach = Math.max(len, d.range * 0.8);
+    for (let i = 0; i < (this.reduced ? 1 : 3); i++) {
+      const life = 0.3 + Math.random() * 0.12;
+      const side = (Math.random() - 0.5) * 0.9;
+      this.particles.push({
+        u: u0 + du * 0.34,
+        v: v0 + dv * 0.34,
+        du: (du * reach) / life - dv * side,
+        dv: (dv * reach) / life + du * side,
+        g: 0,
+        life,
+        max: life,
+        size: 0.11 + Math.random() * 0.06,
+        fire: true,
+      });
+    }
+    if (this.particles.length > 500) this.particles.splice(0, this.particles.length - 500);
+  }
+
   onEvent(type, d) {
     switch (type) {
       case 'shoot':
         if (d.kind === 'shell') this.spark(d.x, d.y, 5, { h: d.h, color: ['#ffffff', '#d5d9e2'], speed: 0.8, life: 0.55, size: 0.08, lift: -0.4, soft: true });
+        else if (d.kind === 'snipe') {
+          this.tracers.push({ x0: d.x, y0: d.y, h: d.h, x1: d.tx, y1: d.ty, life: 0.16, max: 0.16 });
+          this.spark(d.tx, d.ty, 5, { color: ['#ffffff', '#ffe27e'], speed: 2.4, life: 0.22, size: 0.04 });
+        } else if (d.kind === 'flame') this.flame(d);
+        else if (d.kind === 'lord') {
+          /* 두 손에서 나간 광선이 겨눈 적에게서 만나 터진다 */
+          const tw = d.tower;
+          const aim = Math.atan2(this.v(d.tx, d.ty) - this.v(tw.cx, tw.cy), this.u(d.tx, d.ty) - this.u(tw.cx, tw.cy));
+          this.aims.set(tw.id, aim);
+          this.twins.push({ x: tw.cx, y: tw.cy, hands: TOWER_ART.lord.hands(tw.level, aim), tx: d.tx, ty: d.ty, lift: d.er * 0.2, level: tw.level, life: 0.3, max: 0.3 });
+          this.rings.push({ x: d.tx, y: d.ty, r: d.r, life: 0.38, max: 0.38, color: '255,95,184' });
+          this.spark(d.tx, d.ty, 10, { color: ['#ffffff', '#ff9bd4', '#dc4494'], speed: 2.8, life: 0.4, size: 0.06 });
+          this.spark(d.tx, d.ty, 4, { color: ['#5f54a8', '#3c3378'], speed: 0.8, life: 0.6, size: 0.12, lift: -0.5, soft: true });
+        }
+        break;
+      case 'summon': {
+        const tw = d.tower;
+        this.rings.push({ x: tw.cx, y: tw.cy + 0.2, r: 1.1, life: 0.5, max: 0.5, color: '255,95,184' });
+        this.spark(tw.cx, tw.cy - 0.2, 12, { color: ['#4d3789', '#8163c9', '#ff9bd4'], speed: 1.6, life: 0.6, size: 0.08, lift: -0.8, soft: true, spread: 0.3 });
+        break;
+      }
+      case 'bite':
+        this.spark(d.x, d.y, 2, { color: ['#ff9bd4', '#ffffff'], speed: 1.4, life: 0.22, size: 0.035 });
+        break;
+      case 'poof':
+        this.spark(d.x, d.y - 0.2, 4, { color: ['#4d3789', '#8163c9'], speed: 0.7, life: 0.45, size: 0.08, lift: -0.4, soft: true });
+        break;
+      case 'income':
+        if (!this.clean) this.floaters.push({ x: d.tower.cx, y: d.tower.cy - d.tower.lv.h - 0.1, text: '+' + d.amount, color: '#ffe27e', life: 1, max: 1 });
+        this.spark(d.tower.cx, d.tower.cy - 0.2, 4, { color: ['#ffe27e', '#fff6cf'], speed: 1, life: 0.5, size: 0.04, lift: -1 });
         break;
       case 'hit':
         this.spark(d.x, d.y, 3, { color: ['#ffffff', '#ffe27e'], speed: 1.6, life: 0.2, size: 0.035 });
         break;
       case 'explode': {
+        if (d.kind === 'vial') {
+          this.rings.push({ x: d.x, y: d.y, r: d.r, life: 0.4, max: 0.4, color: '143,224,74' });
+          this.spark(d.x, d.y, 8, { color: ['#d6ff8a', '#8fe04a', '#4f9a2a'], speed: 1.6, life: 0.5, size: 0.07, lift: -0.4 });
+          break;
+        }
         const shell = d.kind === 'shell';
         this.rings.push({ x: d.x, y: d.y, r: d.r, life: 0.32, max: 0.32, color: shell ? '255,170,60' : '255,140,60' });
         this.spark(d.x, d.y, shell ? 12 : 5, { color: ['#ffe27e', '#ee8530', '#ffffff'], speed: shell ? 3 : 2, life: 0.35, size: 0.065 });
@@ -425,19 +427,30 @@ class Renderer {
         this.spark(d.x, d.y, boss ? 30 : 8, { color: POOF[d.enemy.type] || '#ffffff', speed: boss ? 2.6 : 1.6, life: boss ? 0.9 : 0.5, size: boss ? 0.11 : 0.07, lift: -0.8, gravity: 4, spread: d.enemy.r });
         this.spark(d.x, d.y, boss ? 8 : 3, { color: ['#ffffff', '#f1ecdf'], speed: 0.6, life: 0.6, size: boss ? 0.2 : 0.12, lift: -0.4, soft: true });
         if (boss) this.rings.push({ x: d.x, y: d.y, r: 1.6, life: 0.6, max: 0.6, color: '255,226,126' });
-        this.floaters.push({ x: d.x, y: d.y - d.enemy.r, text: '+' + d.reward, color: '#ffe27e', life: 0.9, max: 0.9 });
+        if (d.reward > 0 && !this.clean) this.floaters.push({ x: d.x, y: d.y - d.enemy.r, text: '+' + d.reward, color: '#ffe27e', life: 0.9, max: 0.9 });
         break;
       }
       case 'leak':
         this.alarm = 1;
         if (!this.reduced) this.shake = 0.35;
-        this.floaters.push({ x: d.x, y: d.y - 0.6, text: '−' + Math.min(d.enemy.lives, 99), color: '#ff6b55', life: 1.2, max: 1.2 });
+        if (!this.clean) this.floaters.push({ x: d.x, y: d.y - 0.6, text: '−' + Math.min(d.enemy.lives, 99), color: '#ff6b55', life: 1.2, max: 1.2 });
         break;
       case 'build':
+        if (d.tower.type === 'lord') {
+          /* 군주의 등장: 자홍빛 고리와 어둠이 퍼진다 */
+          this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 1.8, life: 0.7, max: 0.7, color: '255,95,184' });
+          this.spark(d.tower.cx, d.tower.cy - 0.3, 26, { color: ['#ff9bd4', '#dc4494', '#ffffff', '#5f54a8'], speed: 2.6, life: 0.8, size: 0.07, lift: -1.2, spread: 0.4 });
+          if (!this.reduced && !this.clean) this.shake = 0.2;
+        }
         this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 0.75, life: 0.3, max: 0.3, color: '255,255,255' });
         this.spark(d.tower.cx, d.tower.cy + 0.3, 9, { color: ['#e3c792', '#c9aa72', '#ffffff'], speed: 1.3, life: 0.45, size: 0.07, lift: -0.3, soft: true });
         break;
       case 'upgrade':
+        if (d.tower.type === 'lord') {
+          /* 새 옷으로 갈아입는 순간 */
+          this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 1.5, life: 0.6, max: 0.6, color: '255,95,184' });
+          this.spark(d.tower.cx, d.tower.cy - 0.4, 22, { color: ['#ff9bd4', '#ffffff', '#ffe27e'], speed: 2.2, life: 0.8, size: 0.06, lift: -1.6, spread: 0.5 });
+        }
         this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 0.9, life: 0.45, max: 0.45, color: '255,226,126' });
         this.spark(d.tower.cx, d.tower.cy - 0.3, 14, { color: ['#ffe27e', '#ffffff'], speed: 1.3, life: 0.7, size: 0.05, lift: -1.4, spread: 0.5 });
         break;
@@ -466,21 +479,23 @@ class Renderer {
   draw(ui) {
     const { ctx, ts, dpr, game } = this;
     if (!game || !this.w) return;
-    const cam = this.cam;
-    if (this.dirty && !cam) this.paintBackground();
     const t = ui.time;
     const dt = ui.dt;
+    const camX = Math.round(this.cam.x * dpr) / dpr;
+    const camY = Math.round(this.cam.y * dpr) / dpr;
 
-    const camX = cam ? Math.round(cam.x * dpr) / dpr : 0;
-    const camY = cam ? Math.round(cam.y * dpr) / dpr : 0;
+    if (this.still) {
+      if (this.dirty) this.paintGround(camX, camY);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(this.bg, 0, 0);
+    }
     ctx.setTransform(dpr, 0, 0, dpr, -camX * dpr, -camY * dpr);
+    if (!this.still) this.drawGround(ctx, camX, camY);
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt);
       const k = this.shake * ts * 0.25;
       ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k);
     }
-    if (cam) this.drawGround(ctx, camX, camY);
-    else ctx.drawImage(this.bg, 0, 0, this.w, this.h);
     if (this.alarm > 0) this.alarm = Math.max(0, this.alarm - dt * 1.2);
 
     if (ui.placing) this.drawBuildable(ctx);
@@ -492,11 +507,17 @@ class Renderer {
     }
 
     this.drawActors(ctx, t, dt);
+    this.drawBeams(ctx, t);
+    this.drawTwins(ctx, t, dt);
+    this.drawMinions(ctx, t);
     this.drawShots(ctx);
     this.drawEffects(ctx, dt);
-    if (!cam) this.drawHealthBars(ctx); /* 로비의 전투 장면에서는 체력 막대를 빼 화면을 깔끔하게 둔다 */
+    if (!this.clean) this.drawHealthBars(ctx);
     this.drawSelection(ctx, ui);
-    if (!cam) this.drawBanner(ctx, dt, ui);
+
+    /* 화면에 고정된 알림 */
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (!this.clean) this.drawBanner(ctx, dt, ui);
   }
 
   drawBuildable(ctx) {
@@ -566,22 +587,20 @@ class Renderer {
     }
     list.sort((p, q) => p.k - q.k);
 
-    /* 창 밖에 있는 것은 그리지 않는다 (키 큰 그림이 걸칠 수 있어 여유를 둔다) */
+    /* 화면 밖에 있는 것은 그리지 않는다 (키 큰 그림이 걸칠 수 있어 여유를 둔다) */
     const cam = this.cam;
-    const x0 = cam ? cam.x - ts * 2.6 : 0;
-    const x1 = cam ? cam.x + this.viewW + ts * 2.6 : 0;
-    const y0 = cam ? cam.y - ts * 1.5 : 0;
-    const y1 = cam ? cam.y + this.viewH + ts * 2.6 : 0;
+    const x0 = cam.x - ts * 2.6;
+    const x1 = cam.x + this.viewW + ts * 2.6;
+    const y0 = cam.y - ts * 1.5;
+    const y1 = cam.y + this.viewH + ts * 2.6;
 
     for (const it of list) {
-      if (cam) {
-        const o = it.kind === 3 || it.kind === 4 ? it.a : it;
-        const ox = it.kind === 3 ? o.cx : o.x;
-        const oy = it.kind === 3 ? o.cy : o.y;
-        const px = this.px(ox, oy);
-        const py = this.py(ox, oy);
-        if (px < x0 || px > x1 || py < y0 || py > y1) continue;
-      }
+      const o = it.kind === 3 || it.kind === 4 ? it.a : it;
+      const ox = it.kind === 3 ? o.cx : o.x;
+      const oy = it.kind === 3 ? o.cy : o.y;
+      const ax = this.px(ox, oy);
+      const ay = this.py(ox, oy);
+      if (ax < x0 || ax > x1 || ay < y0 || ay > y1) continue;
       switch (it.kind) {
         case 0: {
           const fn = TERRAIN_ART.deco[it.a];
@@ -601,13 +620,11 @@ class Renderer {
     }
   }
 
-  /* 굴과 성문은 칸보다 넓다. 지도 가장자리에 있으면 잘리지 않게 안쪽으로 조금 들여 그린다. */
+  /* 굴과 성문: 칸보다 넓은 그림 */
   landmark(ctx, x, y, half, fn) {
-    const ts = this.ts;
-    const px = this.cam ? this.px(x, y) : Math.max(half * ts, Math.min(this.w - half * ts, this.px(x, y)));
     ctx.save();
-    ctx.translate(px, this.py(x, y));
-    ctx.scale(ts, ts);
+    ctx.translate(this.px(x, y), this.py(x, y));
+    ctx.scale(this.ts, this.ts);
     fn(ctx);
     ctx.restore();
   }
@@ -630,7 +647,13 @@ class Renderer {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(this.ts, this.ts);
-    art.top(ctx, tw.level, have, { recoil: tw.recoil, flash: tw.flash, t: t + tw.id });
+    const o = { recoil: tw.recoil, flash: tw.flash, t: t + tw.id };
+    if (tw.type === 'lord') {
+      /* 소환 몸짓과, 쏘기 직전 두 손에 기를 모으는 정도 */
+      o.cast = tw.cast / LORD_CAST;
+      o.charge = this.game.phase === 'wave' ? Math.max(0, Math.min(1, 1 - tw.cd / 0.5)) : 0;
+    }
+    art.top(ctx, tw.level, have, o);
     ctx.restore();
     if (art.front) this.blit(ctx, this.sprite('f:' + tw.type + ':' + tw.level, BOX_TOWER, (g) => art.front(g, tw.level)), x, y);
   }
@@ -672,11 +695,119 @@ class Renderer {
     }
     ctx.restore();
 
+    if (e.poisonT > 0) {
+      /* 독이 든 표시: 초록 방울이 피어오른다 */
+      for (let i = 0; i < 3; i++) {
+        const k = (t * 1.3 + i / 3 + e.id * 0.31) % 1;
+        ctx.fillStyle = `rgba(143,224,74,${0.9 * (1 - k)})`;
+        ctx.beginPath();
+        ctx.arc(x + Math.sin(i * 2.4 + e.id) * e.r * 0.8 * ts, y - e.r * (0.3 + k * 1.5) * ts, ts * (0.05 + 0.03 * (1 - k)), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     if (e.hitT > 0) {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.45, e.hitT * 3.6)})`;
       ctx.beginPath();
       ctx.arc(x, y - e.r * 0.2 * ts, e.r * 1.15 * ts, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+
+  /* 광선탑의 광선: 오래 비출수록 굵고 밝아진다 */
+  drawBeams(ctx, t) {
+    const { ts, game } = this;
+    ctx.lineCap = 'round';
+    for (const tw of game.towers) {
+      const b = tw.beam;
+      if (tw.type !== 'laser' || !b || !b.alive) continue;
+      const k = (game.beamPower(tw) - 1) / 2;
+      const ax = this.px(tw.cx, tw.cy);
+      const ay = this.py(tw.cx, tw.cy) - tw.lv.h * ts;
+      const bx = this.px(b.x, b.y);
+      const by = this.py(b.x, b.y) - b.r * 0.2 * ts;
+      const wob = 0.85 + 0.15 * Math.sin(t * 40);
+      ctx.strokeStyle = `rgba(255,120,50,${0.35 + k * 0.25})`;
+      ctx.lineWidth = ts * (0.16 + k * 0.16) * wob;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255,214,120,${0.75 + k * 0.25})`;
+      ctx.lineWidth = ts * (0.08 + k * 0.07) * wob;
+      ctx.stroke();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1, ts * (0.03 + k * 0.025));
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,190,90,${0.5 + k * 0.3})`;
+      ctx.beginPath();
+      ctx.arc(bx, by, ts * (0.14 + k * 0.12) * wob, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(bx, by, ts * (0.06 + k * 0.04), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /* 군주의 쌍광선: 두 손에서 나가 겨눈 적에게서 만난다 */
+  drawTwins(ctx, t, dt) {
+    const ts = this.ts;
+    let n = 0;
+    ctx.lineCap = 'round';
+    for (const b of this.twins) {
+      b.life -= dt;
+      if (b.life <= 0) continue;
+      this.twins[n++] = b;
+      const k = b.life / b.max;
+      const grow = 1 + b.level * 0.22;
+      const ox = this.px(b.x, b.y);
+      const oy = this.py(b.x, b.y);
+      const ex = this.px(b.tx, b.ty);
+      const ey = this.py(b.tx, b.ty) - b.lift * ts;
+      const wob = 0.85 + 0.15 * Math.sin(t * 50);
+      for (const [width, color] of [[0.2, `rgba(220,68,148,${0.4 * k})`], [0.1, `rgba(255,155,212,${0.9 * k})`], [0.04, `rgba(255,255,255,${k})`]]) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, ts * width * grow * wob * (0.4 + 0.6 * k));
+        ctx.beginPath();
+        for (const h of b.hands) {
+          ctx.moveTo(ox + h[0] * ts, oy + h[1] * ts);
+          ctx.lineTo(ex, ey);
+        }
+        ctx.stroke();
+      }
+      /* 맞은 자리의 섬광 */
+      ctx.fillStyle = `rgba(255,155,212,${0.75 * k})`;
+      ctx.beginPath();
+      ctx.arc(ex, ey, ts * (0.2 + (1 - k) * 0.22) * grow, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255,255,255,${k})`;
+      ctx.beginPath();
+      ctx.arc(ex, ey, ts * 0.11 * grow * k, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    this.twins.length = n;
+  }
+
+  /* 군주가 부른 박쥐들: 적에게 달라붙기 전까지는 조금 떠서 난다 */
+  drawMinions(ctx, t) {
+    const { ts, game } = this;
+    const art = TOWER_ART.lord;
+    if (!game.minions || !game.minions.length || !art) return;
+    for (const m of game.minions) {
+      if (m.age < 0) continue;
+      const x = this.px(m.x, m.y);
+      const y = this.py(m.x, m.y);
+      const lift = m.bite ? 0.05 : 0.3 + Math.sin(t * 6 + m.ph) * 0.04;
+      ctx.fillStyle = 'rgba(22,40,24,.2)';
+      ctx.beginPath();
+      ctx.ellipse(x, y + ts * 0.12, ts * 0.11, ts * 0.04, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(x, y - lift * ts);
+      const grow = Math.min(1, m.age / 0.2) * Math.min(1, m.life / 0.25);
+      ctx.scale(ts * grow * ((this.transposed ? m.dy : m.dx) < 0 ? -1 : 1), ts * grow);
+      art.minion(ctx, m.level, t + m.ph, m.bite);
+      ctx.restore();
     }
   }
 
@@ -706,6 +837,23 @@ class Renderer {
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(gx, y, Math.max(1.2, ts * 0.045), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (s.kind === 'vial') {
+        ctx.fillStyle = ART.shadow;
+        ctx.beginPath();
+        ctx.ellipse(gx, gy, ts * 0.09, ts * 0.04, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = ART.OUT;
+        ctx.beginPath();
+        ctx.arc(gx, y, ts * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#8fe04a';
+        ctx.beginPath();
+        ctx.arc(gx, y, ts * 0.072, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.75)';
+        ctx.beginPath();
+        ctx.arc(gx - ts * 0.025, y - ts * 0.03, ts * 0.025, 0, Math.PI * 2);
         ctx.fill();
       } else if (s.kind === 'shell') {
         ctx.fillStyle = ART.shadow;
@@ -780,6 +928,14 @@ class Renderer {
       p.v += p.dv * dt;
       if (p.soft) { p.du *= 1 - dt * 3; p.dv *= 1 - dt * 1.5; }
       const k = p.life / p.max;
+      if (p.fire) {
+        ctx.globalAlpha = Math.min(1, k * 1.8) * 0.85;
+        ctx.fillStyle = k > 0.66 ? '#fff1a8' : k > 0.36 ? '#ffb347' : '#e8552a';
+        ctx.beginPath();
+        ctx.arc(p.u * ts, p.v * ts + this.pad, p.size * ts * (0.5 + (1 - k) * 1.5), 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
       ctx.globalAlpha = Math.min(1, k * (p.soft ? 1 : 1.6)) * (p.soft ? 0.75 : 1);
       ctx.fillStyle = p.color;
       ctx.beginPath();
@@ -788,6 +944,30 @@ class Renderer {
     }
     ctx.globalAlpha = 1;
     this.particles.length = n;
+
+    /* 저격탑의 총알 궤적 */
+    n = 0;
+    ctx.lineCap = 'round';
+    for (const tr of this.tracers) {
+      tr.life -= dt;
+      if (tr.life <= 0) continue;
+      this.tracers[n++] = tr;
+      const k = tr.life / tr.max;
+      const ax = this.px(tr.x0, tr.y0);
+      const ay = this.py(tr.x0, tr.y0) - tr.h * ts;
+      const bx = this.px(tr.x1, tr.y1);
+      const by = this.py(tr.x1, tr.y1) - ts * 0.1;
+      ctx.strokeStyle = `rgba(255,226,126,${0.6 * k})`;
+      ctx.lineWidth = Math.max(2, ts * 0.09);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${k})`;
+      ctx.lineWidth = Math.max(1, ts * 0.035);
+      ctx.stroke();
+    }
+    this.tracers.length = n;
 
     /* 번개 */
     n = 0;
@@ -884,12 +1064,12 @@ class Renderer {
 
   drawSelection(ctx, ui) {
     const { ts, game } = this;
-    if (ui.selected) this.drawRange(ctx, ui.selected.cx, ui.selected.cy, ui.selected.lv.range, true);
+    if (ui.selected && ui.selected.lv.range > 0) this.drawRange(ctx, ui.selected.cx, ui.selected.cy, ui.selected.lv.range, true);
     if (ui.placing && ui.hover && game.inBounds(ui.hover.x, ui.hover.y)) {
       const { x, y } = ui.hover;
-      const lv = TOWERS[ui.placing].levels[0];
+      const lv = game.lvOf(ui.placing, 0);
       const ok = game.canBuild(x, y) && game.gold >= lv.cost;
-      this.drawRange(ctx, x + 0.5, y + 0.5, lv.range, ok);
+      if (lv.range > 0) this.drawRange(ctx, x + 0.5, y + 0.5, lv.range, ok);
       if (!ok) {
         ctx.fillStyle = 'rgba(255,80,60,.4)';
         ctx.fillRect(this.px(x, y), this.py(x, y), ts, ts);
@@ -900,8 +1080,12 @@ class Renderer {
     }
   }
 
+  /* 화면 가운데의 알림 글과 일시정지 표시 (화면 좌표) */
   drawBanner(ctx, dt, ui) {
-    const { w, h, ts } = this;
+    const w = this.viewW;
+    const ts = this.ts;
+    const top = this.inset.top;
+    const h = this.viewH - top - this.inset.bottom;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
@@ -912,8 +1096,8 @@ class Renderer {
       else {
         const age = b.max - b.life;
         const a = Math.min(1, age / 0.25, b.life / 0.4);
-        const size = Math.min(ts * 0.95, w * 0.085);
-        const cy = this.pad + (h - this.pad) * 0.36;
+        const size = Math.max(26, Math.min(ts * 1.05, w * 0.085, 92));
+        const cy = top + h * 0.36;
         ctx.globalAlpha = a;
         const band = ctx.createLinearGradient(0, 0, w, 0);
         band.addColorStop(0, 'rgba(34,40,60,0)');
@@ -928,7 +1112,7 @@ class Renderer {
         ctx.fillStyle = b.boss ? '#ff8a6b' : '#ffffff';
         ctx.fillText(b.title, w / 2, cy);
         if (b.sub) {
-          ctx.font = `700 ${Math.max(11, size * 0.38)}px ${FONT_UI}`;
+          ctx.font = `700 ${Math.max(12, size * 0.38)}px ${FONT_UI}`;
           ctx.fillStyle = '#ffe27e';
           ctx.fillText(b.sub, w / 2, cy + size * 0.85);
         }
@@ -936,14 +1120,14 @@ class Renderer {
       }
     }
     if (ui.paused) {
-      const size = Math.max(12, ts * 0.42);
+      const size = Math.max(13, Math.min(22, ts * 0.42));
       ctx.font = `700 ${size}px ${FONT_UI}`;
       const tw = ctx.measureText('일시정지').width + size * 1.6;
-      ctx.fillStyle = 'rgba(34,40,60,.88)';
-      roundRectPath(ctx, w / 2 - tw / 2, this.pad + ts * 0.25, tw, size * 2, size);
+      ctx.fillStyle = 'rgba(34,40,60,.9)';
+      roundRectPath(ctx, w / 2 - tw / 2, top + 10, tw, size * 2, size);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.fillText('일시정지', w / 2, this.pad + ts * 0.25 + size);
+      ctx.fillText('일시정지', w / 2, top + 10 + size);
     }
   }
 }

@@ -1,11 +1,15 @@
 'use strict';
-/* 철벽 요새 — 로비·스테이지 선택·도감 같은 화면, 게임 조작, 저장, 게임 루프 */
+/* 철벽 요새 — 로비·스테이지 선택·뽑기·탑 편성 같은 화면, 게임 조작, 저장, 게임 루프 */
 
 (function () {
   const $ = (id) => document.getElementById(id);
   const STEP = 1 / 60;
-  const KEY = { settings: 'ironwall.settings', save: 'ironwall.save', best: 'ironwall.best', progress: 'ironwall.progress' };
+  const KEY = {
+    settings: 'ironwall.settings', save: 'ironwall.save', best: 'ironwall.best',
+    progress: 'ironwall.progress', profile: 'ironwall.profile',
+  };
   const CHALLENGE_UNLOCK = 5; /* 이 스테이지를 깨면 도전 모드가 열린다 */
+  const GEMS = { clear: 100, star: 20, replay: 10, challenge: 15, challengeWin: 100 };
 
   /* 저장소는 막혀 있을 수 있다(사생활 보호 창 등). 없어도 게임은 돌아가야 한다. */
   const store = {
@@ -26,7 +30,7 @@
   };
 
   const el = {
-    app: $('app'), stage: $('stage'), board: $('board'), toast: $('toast'), tray: $('tray'),
+    app: $('app'), board: $('board'), hud: $('hud'), toast: $('toast'), tray: $('tray'),
     lives: $('hud-lives'), statLives: $('stat-lives'), gold: $('hud-gold'), wave: $('hud-wave'), of: $('hud-of'), hudStage: $('hud-stage'),
     speed: $('btn-speed'), pause: $('btn-pause'), menuBtn: $('btn-menu'),
     waveLabel: $('wave-label'), chips: $('wave-chips'), remain: $('wave-remain'), auto: $('opt-auto'), start: $('btn-start'),
@@ -35,21 +39,32 @@
     selected: $('selected'), selName: $('sel-name'), selLevel: $('sel-level'), selStats: $('sel-stats'),
     upgrade: $('btn-upgrade'), sell: $('btn-sell'), target: $('btn-target'), close: $('btn-close'),
 
-    lobby: $('lobby'), backdrop: $('backdrop'), hero: $('hero'), lobbyProgress: $('lobby-progress'), play: $('btn-play'), cont: $('btn-continue'),
-    challengeBtn: $('btn-challenge'), codexBtn: $('btn-codex'), lobbyHint: $('lobby-hint'),
-    stages: $('stages'), stagesBack: $('btn-stages-back'), stagesTotal: $('stages-total'), stageGrid: $('stage-grid'),
+    backdrop: $('backdrop'), hero: $('hero'),
+    lobby: $('lobby'), lobbyProgress: $('lobby-progress'), play: $('btn-play'), cont: $('btn-continue'),
+    gachaBtn: $('btn-gacha'), invBtn: $('btn-inventory'), challengeBtn: $('btn-challenge'), codexBtn: $('btn-codex'), lobbyHint: $('lobby-hint'),
+
+    stages: $('stages'), stagesBack: $('btn-stages-back'), stagesTotal: $('stages-total'),
+    trail: $('trail'), trailLine: $('trail-line'), trailPath: $('trail-path'), trailDone: $('trail-done'), stageGrid: $('stage-grid'),
     stageThumb: $('stage-thumb'), stageNo: $('stage-no'), stageName: $('stage-name'), stageMeta: $('stage-meta'),
-    stageEnemies: $('stage-enemies'), stageNote: $('stage-note'), stageStart: $('btn-stage-start'),
+    stageEnemies: $('stage-enemies'), stageNote: $('stage-note'), stageSquad: $('stage-squad'), squadEdit: $('btn-squad-edit'), stageStart: $('btn-stage-start'),
+
+    gacha: $('gacha'), gachaBack: $('btn-gacha-back'), gachaGems: $('gacha-gems'), gachaStage: $('gacha-stage'), chest: $('chest'), pullCards: $('pull-cards'),
+    pull1: $('btn-pull1'), pull5: $('btn-pull5'), odds: $('gacha-odds'),
+
+    inventory: $('inventory'), invBack: $('btn-inv-back'), invGems: $('inv-gems'), invCount: $('inv-count'), invSlots: $('inv-slots'), invGrid: $('inv-grid'),
+    invArt: $('inv-art'), invName: $('inv-name'), invBlurb: $('inv-blurb'), invStats: $('inv-stats'), invRank: $('inv-rank'), equip: $('btn-equip'),
+
     challenge: $('challenge'), challengeBack: $('btn-challenge-back'), maps: $('maps'), mapNote: $('map-note'), diffs: $('diffs'), challengeStart: $('btn-challenge-start'),
     codex: $('codex'), codexBack: $('btn-codex-back'), codexTowers: $('codex-towers'), codexEnemies: $('codex-enemies'),
-    pauseSheet: $('pause'), pauseEyebrow: $('pause-eyebrow'), pauseTitle: $('pause-title'), resume: $('btn-resume'), restart: $('btn-restart'), quit: $('btn-quit'),
-    result: $('result'), resEyebrow: $('result-eyebrow'), resTitle: $('result-title'), resStars: $('result-stars'), resText: $('result-text'),
+
+    pauseSheet: $('pause'), pauseEyebrow: $('pause-eyebrow'), resume: $('btn-resume'), restart: $('btn-restart'), quit: $('btn-quit'),
+    result: $('result'), resEyebrow: $('result-eyebrow'), resTitle: $('result-title'), resStars: $('result-stars'), resText: $('result-text'), resGems: $('result-gems'),
     tallyWave: $('tally-wave'), tallyKills: $('tally-kills'), tallyLives: $('tally-lives'),
     home: $('btn-home'), endless: $('btn-endless'), retry: $('btn-retry'), next: $('btn-next'),
   };
 
   const app = {
-    screen: 'lobby', /* lobby | stages | challenge | codex | game */
+    screen: 'lobby', /* lobby | stages | gacha | inventory | challenge | codex | game */
     game: null,
     renderer: new Renderer(el.board),
     paused: false,
@@ -67,9 +82,16 @@
     seen: {},
     cards: {},
     pick: 1,
+    invPick: null,
+    invFrom: 'lobby',
+    pulling: false,
+    chestOpen: 0,
+    chestWant: 0,
+    lastGems: 0,
     settings: Object.assign({ map: MAPS[0].id, diff: 'normal', sound: true, auto: false, speed: 1 }, store.get(KEY.settings, {})),
     best: store.get(KEY.best, {}) || {},
     progress: store.get(KEY.progress, {}) || {},
+    profile: null,
     save: store.get(KEY.save, null),
   };
   if (!MAPS.some((m) => m.id === app.settings.map)) app.settings.map = MAPS[0].id;
@@ -86,10 +108,47 @@
   const totalStars = () => STAGES.reduce((n, st) => n + starsOf(st.id), 0);
   const clearedCount = () => STAGES.filter((st) => starsOf(st.id) > 0).length;
   const frontier = () => (STAGES.find((st) => starsOf(st.id) === 0) || STAGES[STAGES.length - 1]).id;
-  const unlockStage = (type) => (STAGES.find((st) => st.towers.includes(type)) || STAGES[0]).id;
   const firstSeen = (type) => (STAGES.find((st) => st.enemies.includes(type)) || STAGES[0]).id;
   const challengeOpen = () => starsOf(CHALLENGE_UNLOCK) > 0;
   const starText = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+
+  /* ───── 가진 탑과 편성 ───── */
+
+  function loadProfile() {
+    let p = store.get(KEY.profile, null);
+    if (!p || typeof p !== 'object' || !p.owned || typeof p.owned !== 'object') {
+      p = { gems: STARTER.gems, owned: {}, loadout: STARTER.towers.slice(), pulls: 0, dry: 0 };
+      /* 뽑기가 생기기 전에 딴 별에도 보석을 쳐 준다 */
+      for (const st of STAGES) if (starsOf(st.id)) p.gems += GEMS.clear + GEMS.star * starsOf(st.id);
+    }
+    const owned = {};
+    for (const t of STARTER.towers) owned[t] = 0;
+    for (const t of Object.keys(p.owned)) if (TOWERS[t]) owned[t] = Math.max(0, Math.min(MAX_RANK, p.owned[t] | 0));
+    p.owned = owned;
+    p.loadout = [...new Set(Array.isArray(p.loadout) ? p.loadout : [])].filter((t) => t in owned).slice(0, LOADOUT_MAX);
+    p.gems = Math.max(0, p.gems | 0);
+    p.pulls = Math.max(0, p.pulls | 0);
+    p.dry = Math.max(0, p.dry | 0);
+    return p;
+  }
+  app.profile = loadProfile();
+  const saveProfile = () => store.set(KEY.profile, app.profile);
+  const owns = (type) => type in app.profile.owned;
+  const rankOf = (type) => app.profile.owned[type] | 0;
+  const ranksFor = (list) => Object.fromEntries(list.map((t) => [t, rankOf(t)]));
+
+  function addGems(n) {
+    app.profile.gems += n;
+    saveProfile();
+  }
+
+  /* '보석 123' 처럼 보석 그림과 수를 함께 넣는다 */
+  function gemText(node, text) {
+    node.textContent = '';
+    const i = document.createElement('i');
+    i.className = 'gem';
+    node.append(i, text);
+  }
 
   /* 받침에 맞는 조사를 붙인다: josa('늑대', '을', '를') → '늑대를' */
   function josa(word, withFinal, without) {
@@ -124,11 +183,23 @@
           ['받는 피해', (l) => (l.vuln ? '+' + Math.round(l.vuln * 100) + '%' : '—')],
         ];
       case 'rocket':
-        return [['피해', (l) => l.dmg + '×' + l.rockets], ['장전', (l) => f1(l.cd) + '초'], ['거리', (l) => f1(l.range)]];
+        return [['피해', (l) => f1(l.dmg) + '×' + l.rockets], ['장전', (l) => f1(l.cd) + '초'], ['거리', (l) => f1(l.range)]];
       case 'tesla':
-        return [['피해', (l) => String(l.dmg)], ['연쇄', (l) => String(l.chain)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
+        return [['피해', (l) => f1(l.dmg)], ['연쇄', (l) => String(l.chain)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
+      case 'poison':
+        return [['독', (l) => '초당 ' + f1(l.dot)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
+      case 'sniper':
+        return [['피해', (l) => f1(l.dmg)], ['장전', (l) => f1(l.cd) + '초'], ['거리', (l) => f1(l.range)]];
+      case 'mine':
+        return [['수입', (l) => l.income + '골드'], ['간격', (l) => l.every + '초']];
+      case 'flame':
+        return [['초당 피해', (l) => f1(l.dps)], ['거리', (l) => f1(l.range)]];
+      case 'laser':
+        return [['초당 피해', (l) => f1(l.dps) + '~' + f1(l.dps * 3)], ['거리', (l) => f1(l.range)]];
+      case 'lord':
+        return [['쌍광선', (l) => f1(l.dmg)], ['장전', (l) => f1(l.cd) + '초'], ['박쥐', (l) => l.bats + '마리×' + f1(l.batDps)], ['거리', (l) => f1(l.range)]];
       default:
-        return [['피해', (l) => String(l.dmg)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
+        return [['피해', (l) => f1(l.dmg)], ['연사', (l) => f1(1 / l.cd)], ['거리', (l) => f1(l.range)]];
     }
   }
 
@@ -160,6 +231,27 @@
 
   /* ───── 작은 그림들 ───── */
 
+  /* 캔버스 한가운데에 탑을 가득 차게 그린다 */
+  function paintTower(cv, type, level) {
+    const c = cv.getContext('2d');
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, cv.width, cv.height);
+    const up = [1.25, 1.5, 1.8][level];
+    const down = 0.55;
+    const k = Math.min(cv.width / 1.16, cv.height / (up + down));
+    c.translate(cv.width / 2 - 0.03 * k, (cv.height - (up + down) * k) / 2 + up * k);
+    c.scale(k, k);
+    drawTowerSprite(c, type, level, 0.55, { t: 0.4, charge: 1 });
+  }
+
+  function towerCanvas(type, level, w, h) {
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    paintTower(cv, type, level);
+    return cv;
+  }
+
   /* 적 그림이 든 단추. label 은 '×8' 같은 덧붙임 글, onInfo 는 눌렀을 때 설명을 보여 줄 곳. */
   function enemyChip(type, label, onInfo) {
     const def = ENEMIES[type];
@@ -169,11 +261,11 @@
     chip.title = def.name + ' — ' + def.trait;
     chip.setAttribute('aria-label', def.name + (label ? ' ' + label : ''));
     const cv = document.createElement('canvas');
-    cv.width = 64;
-    cv.height = 64;
+    cv.width = 96;
+    cv.height = 96;
     const c = cv.getContext('2d');
-    c.translate(31, 40);
-    const s = 14.5 / def.r;
+    c.translate(46, 60);
+    const s = (def.boss ? 20 : 24) / def.r;
     c.scale(s, s);
     drawEnemySprite(c, type, def.r, 0.3, { seed: 1 });
     chip.append(cv);
@@ -224,15 +316,22 @@
     dot((end[0] + 0.5) * s, (end[1] + 0.5) * s, s * 0.55, ART.blue[0]);
   }
 
+  function rarityTag(type) {
+    const r = TOWERS[type].rarity;
+    const tag = document.createElement('span');
+    tag.className = 'tag r-' + r;
+    tag.textContent = RARITY[r].name;
+    return tag;
+  }
+
   /* ───── 화면 전환 ───── */
 
-  const SCREENS = { lobby: el.lobby, stages: el.stages, challenge: el.challenge, codex: el.codex };
+  const SCREENS = { lobby: el.lobby, stages: el.stages, gacha: el.gacha, inventory: el.inventory, challenge: el.challenge, codex: el.codex };
 
   function show(name) {
     app.screen = name;
     el.app.hidden = name !== 'game';
     el.backdrop.hidden = name === 'game';
-    if (name === 'game') scene.r.release();
     for (const k of Object.keys(SCREENS)) {
       SCREENS[k].hidden = k !== name;
       if (k === name) SCREENS[k].scrollTop = 0;
@@ -241,9 +340,13 @@
       el.pauseSheet.hidden = true;
       el.result.hidden = true;
       app.menuOpen = false;
+    } else {
+      scene.r.release();
     }
     if (name === 'lobby') refreshLobby();
     else if (name === 'stages') refreshStages();
+    else if (name === 'gacha') refreshGacha();
+    else if (name === 'inventory') refreshInventory();
     else if (name === 'challenge') refreshChallenge();
     else if (name === 'game') layout();
   }
@@ -252,23 +355,26 @@
 
   function refreshLobby() {
     el.lobbyProgress.textContent = '';
-    const pill = (text, cls) => {
+    const pill = (text, cls, gem) => {
       const p = document.createElement('span');
       p.className = 'pill' + (cls ? ' ' + cls : '');
-      p.textContent = text;
+      if (gem) gemText(p, text);
+      else p.textContent = text;
       el.lobbyProgress.append(p);
     };
     pill('★ ' + totalStars() + ' / ' + STAGES.length * 3, 'gold');
     pill('스테이지 ' + clearedCount() + ' / ' + STAGES.length);
+    pill(String(app.profile.gems), '', true);
     el.play.textContent = clearedCount() === 0 ? '게임 시작' : '스테이지 선택';
 
     const s = app.save;
-    const ok = s && s.v === 3 && MAPS.some((m) => m.id === s.map);
+    const ok = s && s.v === 4 && MAPS.some((m) => m.id === s.map);
     el.cont.hidden = !ok;
     if (ok) {
       const where = s.stage != null ? '스테이지 ' + s.stage : '도전 ' + MAPS.find((m) => m.id === s.map).name;
       el.cont.textContent = '이어하기 · ' + where + ' · 웨이브 ' + (s.wave + 1);
     }
+    el.gachaBtn.classList.toggle('dot', app.profile.gems >= PULL_COST);
     el.challengeBtn.disabled = !challengeOpen();
     el.lobbyHint.textContent = challengeOpen() ? '' : '도전 모드는 스테이지 ' + CHALLENGE_UNLOCK + '를 깨면 열립니다.';
     setSoundLabel();
@@ -277,8 +383,9 @@
   /* ───── 로비 뒤로 흐르는 전투 장면 ─────
      진짜 게임을 한 판 돌리면서, 카메라가 길을 따라 미끄러지듯 지나가며 일부만 가까이서 비춘다.
      몇 초마다 화면이 어두워졌다 밝아지며 다른 곳(가끔은 다른 전장)으로 넘어간다. */
-  const scene = { r: new Renderer(el.hero), game: null, shot: null, count: 0, acc: 0, mapAt: (Math.random() * 7) | 0, snap: true };
-  const SCENE_MAPS = ['gubi', 'twin', 'snake', 'zigzag', 'ssang', 'cross'];
+  const scene = { r: new Renderer(el.hero), game: null, shot: null, count: 0, acc: 0, mapAt: (Math.random() * 6) | 0, snap: true };
+  scene.r.clean = true;
+  const SCENE_MAPS = ['gubi', 'knot', 'snake', 'maze', 'ssang', 'cross'];
   const SCENE_WAVES = [10, 18]; /* 시연에 돌려 쓰는 도전 모드 웨이브 범위 */
 
   function sceneStep(dt) {
@@ -297,14 +404,14 @@
     g.update(dt);
   }
 
-  /* 길을 따라 여러 단계의 탑을 흩어 세운 시연용 전장 */
+  /* 길을 따라 여러 탑을 흩어 세운 시연용 전장 */
   function sceneGame() {
     const g = new Game({ map: SCENE_MAPS[scene.mapAt++ % SCENE_MAPS.length], diff: 'normal', seed: (Math.random() * 2 ** 31) | 0 });
-    const kinds = ['crossbow', 'cannon', 'tesla', 'crossbow', 'frost', 'rocket', 'cannon', 'tesla'];
+    const kinds = TOWER_ORDER.filter((t) => TOWERS[t].kind !== 'income' && !TOWERS[t].unique);
     const tmp = {};
-    let n = 0;
+    let n = (Math.random() * kinds.length) | 0;
     for (const p of g.paths) {
-      const count = Math.round(p.length / 3);
+      const count = Math.round(p.length / 3.4);
       for (let i = 0; i < count; i++) {
         p.at(((i + 0.5) / count) * p.length, tmp);
         let best = null;
@@ -320,16 +427,13 @@
           }
         }
         if (!best) continue;
-        const t = g.addTower(kinds[n % kinds.length], best.x, best.y);
+        const t = g.addTower(kinds[n++ % kinds.length], best.x, best.y);
         /* 굴 가까이는 낮은 단계, 성문 쪽으로 갈수록 높은 단계: 괴수가 길 곳곳에서 쓰러진다 */
-        t.level = Math.min(2, Math.floor((i / count) * 3));
-        t.lv = t.def.levels[t.level];
+        g.setLevel(t, Math.min(2, Math.floor((i / count) * 3)));
         t.fresh = false;
-        n++;
       }
     }
     g.wave = SCENE_WAVES[0] - 1;
-    g.lives = 999;
     g.listener = (type, d) => {
       if (type !== 'wavestart' && type !== 'waveclear') scene.r.onEvent(type, d);
     };
@@ -407,20 +511,27 @@
     if (s.t >= s.dur) nextShot();
   }
 
-  /* ───── 스테이지 선택 ───── */
+  /* ───── 스테이지 선택: 길을 따라 놓인 스테이지들 ───── */
 
-  function buildStageGrid() {
-    for (const st of STAGES) {
+  const TRAIL_COLS = 4;
+
+  function buildStageTrail() {
+    STAGES.forEach((st, i) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'stage-tile';
+      b.className = 'node ' + (i % 2 ? 'down' : 'up');
       b.setAttribute('role', 'radio');
       b.dataset.stage = String(st.id);
+      /* 줄마다 방향을 바꿔 길이 굽이치게 한다 */
+      const row = Math.floor(i / TRAIL_COLS);
+      const col = row % 2 ? TRAIL_COLS - 1 - (i % TRAIL_COLS) : i % TRAIL_COLS;
+      b.style.gridRow = String(row + 1);
+      b.style.gridColumn = String(col + 1);
       const num = document.createElement('span');
       num.className = 'num';
       num.textContent = String(st.id);
       const stars = document.createElement('span');
-      stars.className = 'tile-stars';
+      stars.className = 'node-stars';
       b.append(num, stars);
       b.addEventListener('click', () => {
         Sfx.play('click');
@@ -428,7 +539,22 @@
         refreshStages();
       });
       el.stageGrid.append(b);
-    }
+    });
+  }
+
+  /* 스테이지들을 잇는 길을 그린다. 깬 곳까지는 금빛 점선이 덧그려진다. */
+  function drawTrail() {
+    if (app.screen !== 'stages') return;
+    const box = el.trail.getBoundingClientRect();
+    if (box.width < 10) return;
+    const pts = [...el.stageGrid.children].map((n) => {
+      const r = n.getBoundingClientRect();
+      return [r.left + r.width / 2 - box.left, r.top + r.height / 2 - box.top];
+    });
+    const path = (list) => list.map(([x, y], i) => (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1)).join(' ');
+    el.trailLine.setAttribute('viewBox', '0 0 ' + box.width.toFixed(1) + ' ' + box.height.toFixed(1));
+    el.trailPath.setAttribute('d', path(pts));
+    el.trailDone.setAttribute('d', path(pts.slice(0, Math.max(1, Math.min(pts.length, clearedCount() + 1)))));
   }
 
   function refreshStages() {
@@ -451,14 +577,266 @@
     el.stageNo.textContent = '스테이지 ' + st.id + (starsOf(st.id) ? ' · ' + starText(starsOf(st.id)) : '');
     el.stageName.textContent = st.name;
     el.stageMeta.textContent = map.name + ' · 웨이브 ' + st.waves.length + ' · 시작 골드 ' + st.gold + ' · 목숨 ' + st.lives;
-    const news = [];
-    if (st.newTowers.length) news.push('새 탑: ' + st.newTowers.map((t) => TOWERS[t].name).join(', '));
-    if (st.newEnemies.length && st.id > 1) news.push('새 괴수: ' + st.newEnemies.map((t) => ENEMIES[t].name).join(', '));
-    const base = (news.length ? news.join(' · ') + '. ' : '') + map.note;
-    el.stageNote.textContent = base;
+    const news = st.newEnemies.length && st.id > 1 ? '새 괴수: ' + st.newEnemies.map((t) => ENEMIES[t].name).join(', ') + '. ' : '';
+    el.stageNote.textContent = news + map.note;
     el.stageEnemies.textContent = '';
     for (const type of st.enemies) el.stageEnemies.append(enemyChip(type, '', (text) => { el.stageNote.textContent = text; }));
+    el.stageSquad.textContent = '';
+    if (app.profile.loadout.length) {
+      for (const type of app.profile.loadout) {
+        const cv = towerCanvas(type, 0, 78, 92);
+        cv.title = TOWERS[type].name;
+        el.stageSquad.append(cv);
+      }
+    } else {
+      const none = document.createElement('span');
+      none.className = 'none';
+      none.textContent = '데려갈 탑을 골라 주세요';
+      el.stageSquad.append(none);
+    }
+    el.stageStart.disabled = !app.profile.loadout.length;
     el.stageStart.textContent = starsOf(st.id) ? '다시 도전' : '시작';
+    requestAnimationFrame(drawTrail);
+  }
+
+  /* ───── 뽑기 ───── */
+
+  /* 한 번 뽑는다. 처음 몇 번과, 이미 가진 탑이 잇달아 나온 뒤에는 새 탑을 보장한다. */
+  function pullOnce() {
+    const p = app.profile;
+    const pick = (list) => {
+      let total = 0;
+      const ws = list.map((t) => {
+        const r = TOWERS[t].rarity;
+        const w = RARITY[r].weight / TOWER_ORDER.filter((o) => TOWERS[o].rarity === r).length;
+        total += w;
+        return w;
+      });
+      let roll = Math.random() * total;
+      for (let i = 0; i < list.length; i++) {
+        roll -= ws[i];
+        if (roll <= 0) return list[i];
+      }
+      return list[list.length - 1];
+    };
+    const missing = TOWER_ORDER.filter((t) => !owns(t));
+    const sure = missing.length && (p.pulls < STARTER.sure || p.dry >= 2);
+    const type = pick(sure ? missing : TOWER_ORDER);
+    p.pulls++;
+    if (!owns(type)) {
+      p.owned[type] = 0;
+      p.dry = 0;
+      if (p.loadout.length < LOADOUT_MAX) p.loadout.push(type);
+      return { type, kind: 'new' };
+    }
+    p.dry++;
+    if (p.owned[type] < MAX_RANK) {
+      p.owned[type]++;
+      return { type, kind: 'rank', rank: p.owned[type] };
+    }
+    p.gems += DUPE_GEMS;
+    return { type, kind: 'gems' };
+  }
+
+  function pullCard(res, delay) {
+    const def = TOWERS[res.type];
+    const card = document.createElement('div');
+    card.className = 'pull-card r-' + def.rarity + (res.kind === 'new' ? ' new' : '');
+    card.style.animationDelay = delay + 'ms';
+    const name = document.createElement('strong');
+    name.textContent = def.name;
+    const rar = document.createElement('span');
+    rar.className = 'rar';
+    rar.textContent = RARITY[def.rarity].name;
+    const got = document.createElement('span');
+    got.className = 'got';
+    if (res.kind === 'new') got.textContent = '새 탑!';
+    else if (res.kind === 'rank') got.textContent = '등급 +' + res.rank;
+    else gemText(got, '+' + DUPE_GEMS);
+    card.append(towerCanvas(res.type, 2, 200, 240), name, rar, got);
+    return card;
+  }
+
+  function pull(n) {
+    const cost = n === 1 ? PULL_COST : PULL5_COST;
+    if (app.pulling) return;
+    if (app.profile.gems < cost) {
+      deny('보석이 ' + (cost - app.profile.gems) + '개 모자랍니다. 스테이지를 깨면 보석을 얻습니다.');
+      return;
+    }
+    app.profile.gems -= cost;
+    const results = [];
+    for (let i = 0; i < n; i++) results.push(pullOnce());
+    saveProfile();
+    app.pulling = true;
+    app.chestWant = 0;
+    el.pullCards.textContent = '';
+    el.gachaStage.classList.remove('dealt');
+    el.chest.classList.remove('shake');
+    void el.chest.offsetWidth; /* 흔들림을 처음부터 다시 */
+    el.chest.classList.add('shake');
+    Sfx.play('pull');
+    refreshGacha();
+    setTimeout(() => {
+      app.chestWant = 1;
+      el.gachaStage.classList.toggle('dealt', results.length > 1);
+      results.forEach((res, i) => {
+        const at = 250 + i * 300;
+        el.pullCards.append(pullCard(res, at));
+        const top = ['legend', 'mythic'].includes(TOWERS[res.type].rarity);
+        setTimeout(() => Sfx.play(top || res.kind === 'new' ? 'jackpot' : 'reveal'), at);
+      });
+      setTimeout(() => {
+        app.pulling = false;
+        refreshGacha();
+      }, 300 + results.length * 300);
+    }, 650);
+  }
+
+  function refreshGacha() {
+    gemText(el.gachaGems, String(app.profile.gems));
+    const label = (node, text, cost) => {
+      node.textContent = text;
+      const c = document.createElement('span');
+      c.className = 'cost';
+      gemText(c, String(cost));
+      node.append(c);
+    };
+    label(el.pull1, '1회 뽑기', PULL_COST);
+    label(el.pull5, '5회 뽑기', PULL5_COST);
+    el.pull1.disabled = app.pulling;
+    el.pull5.disabled = app.pulling;
+    const odds = Object.keys(RARITY).map((r) => RARITY[r].name + ' ' + RARITY[r].weight + '%').join(' · ');
+    const left = TOWER_ORDER.filter((t) => !owns(t)).length;
+    el.odds.textContent = '확률 — ' + odds + '. 이미 가진 탑이 나오면 그 탑의 등급이 오르고(최대 +' + MAX_RANK + ', 등급마다 위력 +' + Math.round(RANK_BONUS * 100) + '%), 등급이 가득 찬 탑은 보석 '
+      + DUPE_GEMS + '개로 돌려받습니다. 가진 탑이 두 번 잇달아 나오면 다음에는 새 탑이 나옵니다. ' + (left ? '아직 얻지 못한 탑 ' + left + '종.' : '모든 탑을 얻었습니다.');
+  }
+
+  function drawChest() {
+    const cv = el.chest;
+    const c = cv.getContext('2d');
+    app.chestOpen += (app.chestWant - app.chestOpen) * 0.16;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, cv.width, cv.height);
+    c.translate(cv.width / 2, cv.height * 0.92);
+    c.scale(cv.width * 0.62, cv.width * 0.62);
+    UI_ART.chest(c, app.chestOpen, app.time);
+  }
+
+  /* ───── 탑 편성(인벤토리) ───── */
+
+  function towerCard(type, opts) {
+    const def = TOWERS[type];
+    const have = owns(type);
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'tcard r-' + def.rarity + (have ? '' : ' locked');
+    card.setAttribute('aria-pressed', String(app.invPick === type && !opts.slot));
+    const name = document.createElement('strong');
+    name.textContent = def.name;
+    const rar = document.createElement('span');
+    rar.className = 'rar r-' + def.rarity;
+    rar.textContent = have ? RARITY[def.rarity].name : '미보유';
+    rar.style.color = have ? RARITY[def.rarity].color : '';
+    card.append(towerCanvas(type, opts.slot ? 0 : 2, 150, 180), name, rar);
+    if (have && rankOf(type)) {
+      const b = document.createElement('span');
+      b.className = 'badge';
+      b.textContent = '+' + rankOf(type);
+      card.append(b);
+    }
+    if (!opts.slot && app.profile.loadout.includes(type)) {
+      const b = document.createElement('span');
+      b.className = 'badge use';
+      b.textContent = '출전';
+      card.append(b);
+    }
+    card.addEventListener('click', () => {
+      Sfx.play('click');
+      app.invPick = type;
+      refreshInventory();
+    });
+    return card;
+  }
+
+  function refreshInventory() {
+    const p = app.profile;
+    if (!app.invPick || !TOWERS[app.invPick]) app.invPick = p.loadout[0] || TOWER_ORDER[0];
+    gemText(el.invGems, String(p.gems));
+    el.invBack.textContent = app.invFrom === 'stages' ? '← 스테이지' : '← 로비';
+    el.invCount.textContent = p.loadout.length + ' / ' + LOADOUT_MAX;
+
+    el.invSlots.textContent = '';
+    for (let i = 0; i < LOADOUT_MAX; i++) {
+      const type = p.loadout[i];
+      if (type) {
+        el.invSlots.append(towerCard(type, { slot: true }));
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'tcard empty';
+        empty.textContent = '빈 자리';
+        el.invSlots.append(empty);
+      }
+    }
+    el.invGrid.textContent = '';
+    for (const type of TOWER_ORDER) el.invGrid.append(towerCard(type, {}));
+
+    /* 고른 탑의 자세한 정보 */
+    const type = app.invPick;
+    const def = TOWERS[type];
+    const have = owns(type);
+    const rank = rankOf(type);
+    const c = el.invArt.getContext('2d');
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, el.invArt.width, el.invArt.height);
+    for (let lv = 0; lv < 3; lv++) {
+      c.save();
+      c.translate(el.invArt.width * (0.19 + lv * 0.31), el.invArt.height * 0.76);
+      c.scale(122, 122);
+      drawTowerSprite(c, type, lv, 0.55, { t: 0.4, charge: 1 });
+      c.restore();
+    }
+    el.invName.textContent = def.name;
+    el.invName.append(rarityTag(type));
+    if (rank) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = '등급 +' + rank;
+      el.invName.append(tag);
+    }
+    el.invBlurb.textContent = def.blurb + ' 값 ' + def.levels.map((l) => l.cost).join(' · ') + ' 골드.';
+    el.invStats.textContent = '';
+    for (const [label, get] of statDefs(type)) {
+      const s = document.createElement('span');
+      const i = document.createElement('i');
+      i.textContent = label;
+      s.append(i, [0, 1, 2].map((lv) => get(towerStats(type, lv, rank))).join(' → '));
+      el.invStats.append(s);
+    }
+    el.invRank.textContent = !have
+      ? '아직 얻지 못한 탑입니다. 뽑기에서 얻을 수 있습니다.'
+      : rank >= MAX_RANK
+        ? '등급이 가득 찼습니다(+' + MAX_RANK + '). 위력 +' + Math.round(RANK_BONUS * rank * 100) + '%.'
+        : rank
+          ? '등급 +' + rank + ' — 위력 +' + Math.round(RANK_BONUS * rank * 100) + '%. 뽑기에서 또 나오면 더 오릅니다.'
+          : '뽑기에서 같은 탑이 또 나오면 등급이 올라 더 강해집니다.';
+    const on = p.loadout.includes(type);
+    el.equip.disabled = !have || (!on && p.loadout.length >= LOADOUT_MAX);
+    el.equip.classList.toggle('primary', have && !on);
+    el.equip.textContent = !have ? '미보유' : on ? '출전에서 빼기' : p.loadout.length >= LOADOUT_MAX ? '자리가 없습니다 — 먼저 하나를 빼세요' : '출전시키기';
+  }
+
+  function toggleEquip() {
+    const p = app.profile;
+    const type = app.invPick;
+    if (!owns(type)) return;
+    const i = p.loadout.indexOf(type);
+    if (i >= 0) p.loadout.splice(i, 1);
+    else if (p.loadout.length < LOADOUT_MAX) p.loadout.push(type);
+    else return;
+    Sfx.play('equip');
+    saveProfile();
+    refreshInventory();
   }
 
   /* ───── 도전 모드 ───── */
@@ -477,8 +855,8 @@
       b.setAttribute('role', 'radio');
       b.dataset.map = map.id;
       const cv = document.createElement('canvas');
-      cv.width = 240;
-      cv.height = 150;
+      cv.width = 270;
+      cv.height = 165;
       drawThumb(cv, map);
       const name = document.createElement('strong');
       name.textContent = map.name;
@@ -516,52 +894,13 @@
     for (const b of el.diffs.children) b.setAttribute('aria-checked', String(b.dataset.diff === app.settings.diff));
     const map = MAPS.find((m) => m.id === app.settings.map);
     const d = DIFFICULTY[app.settings.diff];
-    el.mapNote.textContent = map.note + ' 골드 ' + d.gold + ', 목숨 ' + d.lives + '개로 시작합니다.';
+    el.mapNote.textContent = map.note + ' 골드 ' + d.gold + ', 목숨 ' + d.lives + '개로 시작합니다. 다섯 웨이브를 넘길 때마다 보석 ' + GEMS.challenge + '개를 얻습니다.';
+    el.challengeStart.disabled = !app.profile.loadout.length;
   }
 
   /* ───── 도감 ───── */
 
   function buildCodex() {
-    for (const type of TOWER_ORDER) {
-      const def = TOWERS[type];
-      const card = document.createElement('article');
-      card.className = 'codex-card';
-      const cv = document.createElement('canvas');
-      cv.width = 420;
-      cv.height = 236;
-      const c = cv.getContext('2d');
-      for (let lv = 0; lv < 3; lv++) {
-        c.save();
-        c.translate(72 + lv * 138, 182);
-        c.scale(100, 100);
-        drawTowerSprite(c, type, lv, 0.55, { t: 0.4 });
-        c.restore();
-      }
-      const body = document.createElement('div');
-      const h = document.createElement('h4');
-      h.textContent = def.name;
-      const tag = document.createElement('span');
-      tag.className = 'tag';
-      tag.textContent = def.levels.map((l) => l.cost).join(' · ') + ' G';
-      h.append(tag);
-      const p = document.createElement('p');
-      p.textContent = def.blurb;
-      const stats = document.createElement('p');
-      stats.className = 'codex-stats';
-      for (const [label, get] of statDefs(type)) {
-        const s = document.createElement('span');
-        const i = document.createElement('i');
-        i.textContent = label;
-        s.append(i, def.levels.map(get).join(' → '));
-        stats.append(s);
-      }
-      const from = document.createElement('p');
-      from.className = 'codex-from';
-      from.textContent = unlockStage(type) === 1 ? '처음부터 쓸 수 있습니다.' : '스테이지 ' + unlockStage(type) + '부터 쓸 수 있습니다.';
-      body.append(h, p, stats, from);
-      card.append(cv, body);
-      el.codexTowers.append(card);
-    }
     for (const type of Object.keys(ENEMIES)) {
       const def = ENEMIES[type];
       const card = document.createElement('article');
@@ -608,6 +947,44 @@
       card.append(cv, body);
       el.codexEnemies.append(card);
     }
+    for (const type of TOWER_ORDER) {
+      const def = TOWERS[type];
+      const card = document.createElement('article');
+      card.className = 'codex-card';
+      const cv = document.createElement('canvas');
+      cv.width = 420;
+      cv.height = 236;
+      const c = cv.getContext('2d');
+      for (let lv = 0; lv < 3; lv++) {
+        c.save();
+        c.translate(72 + lv * 138, 182);
+        c.scale(100, 100);
+        drawTowerSprite(c, type, lv, 0.55, { t: 0.4, charge: 1 });
+        c.restore();
+      }
+      const body = document.createElement('div');
+      const h = document.createElement('h4');
+      h.textContent = def.name;
+      h.append(rarityTag(type));
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = def.levels.map((l) => l.cost).join(' · ') + ' G';
+      h.append(tag);
+      const p = document.createElement('p');
+      p.textContent = def.blurb;
+      const stats = document.createElement('p');
+      stats.className = 'codex-stats';
+      for (const [label, get] of statDefs(type)) {
+        const s = document.createElement('span');
+        const i = document.createElement('i');
+        i.textContent = label;
+        s.append(i, def.levels.map(get).join(' → '));
+        stats.append(s);
+      }
+      body.append(h, p, stats);
+      card.append(cv, body);
+      el.codexTowers.append(card);
+    }
   }
 
   /* ───── 게임 시작·저장 ───── */
@@ -637,18 +1014,34 @@
         persist(game.snapshot);
         break;
       case 'waveclear':
-        if (!game.stage) record(game, d.wave, false);
+        if (!game.stage) {
+          record(game, d.wave, false);
+          if (d.wave % 5 === 0) {
+            addGems(GEMS.challenge);
+            app.lastGems += GEMS.challenge;
+            toast('보석 ' + GEMS.challenge + '개를 얻었습니다.');
+          }
+        }
         if (game.phase === 'build') persist(game.serialize());
         break;
       case 'won':
         if (game.stage) {
+          const id = game.stage.id;
+          const old = starsOf(id);
           const got = game.stars();
-          if (got > starsOf(game.stage.id)) {
-            app.progress.stars[game.stage.id] = got;
+          let gems = old ? 0 : GEMS.clear;
+          if (got > old) {
+            gems += GEMS.star * (got - old);
+            app.progress.stars[id] = got;
             store.set(KEY.progress, app.progress);
           }
+          if (!gems) gems = GEMS.replay;
+          addGems(gems);
+          app.lastGems = gems;
         } else {
           record(game, FINAL_WAVE, true);
+          addGems(GEMS.challengeWin);
+          app.lastGems += GEMS.challengeWin;
         }
         persist(null);
         app.resultAt = app.time + 1.4;
@@ -667,6 +1060,7 @@
     app.autoWait = 0;
     app.resultAt = 0;
     app.confirmUntil = 0;
+    app.lastGems = 0;
     app.selected = null;
     app.placing = null;
     app.seen = {};
@@ -677,24 +1071,28 @@
     app.renderer.setGame(game);
     game.listener = onGameEvent;
     el.hudStage.textContent = game.stage ? '스테이지 ' + game.stage.id + ' · ' : '도전 · ';
-    refreshShopLocks();
+    buildShop(game);
     refreshPanels();
     show('game');
   }
 
+  function squad() {
+    const loadout = app.profile.loadout.slice();
+    return { loadout, ranks: ranksFor(loadout) };
+  }
+
   function startStage(id) {
     const st = STAGES.find((s) => s.id === id);
-    if (!st || !unlocked(id)) return;
-    begin(new Game({ stage: id, seed: (Math.random() * 2 ** 31) | 0 }));
+    if (!st || !unlocked(id) || !app.profile.loadout.length) return;
+    begin(new Game(Object.assign({ stage: id, seed: (Math.random() * 2 ** 31) | 0 }, squad())));
     app.renderer.banner = { title: '스테이지 ' + id, sub: st.name, life: 2.6, max: 2.6 };
-    const news = [];
-    if (st.newTowers.length) news.push('새 탑 ' + josa(st.newTowers.map((t) => TOWERS[t].name).join(', '), '을', '를') + ' 쓸 수 있습니다.');
-    if (st.newEnemies.length && id > 1) news.push('새 괴수 ' + josa(st.newEnemies.map((t) => ENEMIES[t].name).join(', '), '이', '가') + ' 나옵니다.');
-    toast(news.length ? news.join(' ') : '탑을 골라 길가 빈 땅에 세운 뒤 시작을 누르세요.', 6000);
+    const news = st.newEnemies.length && id > 1 ? '새 괴수 ' + josa(st.newEnemies.map((t) => ENEMIES[t].name).join(', '), '이', '가') + ' 나옵니다. ' : '';
+    toast(news + '아래에서 탑을 골라 길가 빈 땅에 세운 뒤 시작을 누르세요.', 6000);
   }
 
   function startChallenge(mapId, diffId) {
-    begin(new Game({ map: mapId || app.settings.map, diff: diffId || app.settings.diff, seed: (Math.random() * 2 ** 31) | 0 }));
+    if (!app.profile.loadout.length) return;
+    begin(new Game(Object.assign({ map: mapId || app.settings.map, diff: diffId || app.settings.diff, seed: (Math.random() * 2 ** 31) | 0 }, squad())));
     toast('서른 웨이브를 버텨 보세요.', 4000);
   }
 
@@ -723,29 +1121,37 @@
     show('lobby');
   }
 
-  /* ───── 상점 ───── */
+  /* ───── 건설 서랍: 이번 판에 데려온 탑들 ───── */
 
-  function buildShop() {
-    TOWER_ORDER.forEach((type, i) => {
+  function buildShop(game) {
+    el.shop.textContent = '';
+    app.cards = {};
+    for (let i = 0; i < LOADOUT_MAX; i++) {
+      const type = game.allowed[i];
+      if (!type) {
+        const empty = document.createElement('div');
+        empty.className = 'card empty';
+        empty.textContent = '빈 자리';
+        el.shop.append(empty);
+        continue;
+      }
       const def = TOWERS[type];
       const card = document.createElement('button');
       card.type = 'button';
-      card.className = 'card';
+      card.className = 'card r-' + def.rarity;
       card.setAttribute('aria-pressed', 'false');
       card.title = def.blurb;
-      const ico = document.createElement('canvas');
+      const ico = towerCanvas(type, 0, 108, 126);
       ico.className = 'card-ico';
-      ico.width = 96;
-      ico.height = 112;
-      const c = ico.getContext('2d');
-      c.translate(47, 80);
-      c.scale(62, 62);
-      drawTowerSprite(c, type, 0, 0.5, { t: 0.4 });
       const nm = document.createElement('span');
       nm.className = 'card-nm';
       nm.textContent = def.name;
       const cost = document.createElement('span');
       cost.className = 'card-cost';
+      cost.append(String(def.levels[0].cost));
+      const unit = document.createElement('i');
+      unit.textContent = 'G';
+      cost.append(unit);
       const key = document.createElement('span');
       key.className = 'card-key';
       key.textContent = String(i + 1);
@@ -756,28 +1162,12 @@
       });
       el.shop.append(card);
       app.cards[type] = card;
-    });
+    }
   }
 
-  /* 이 판에서 쓸 수 없는 탑은 잠가 둔다. */
-  function refreshShopLocks() {
-    const g = app.game;
-    for (const type of TOWER_ORDER) {
-      const card = app.cards[type];
-      const open = !g || g.allowed.includes(type);
-      card.disabled = !open;
-      card.classList.toggle('locked', !open);
-      const cost = card.querySelector('.card-cost');
-      cost.textContent = '';
-      if (open) {
-        cost.append(String(TOWERS[type].levels[0].cost));
-        const unit = document.createElement('i');
-        unit.textContent = 'G';
-        cost.append(unit);
-      } else {
-        cost.textContent = '스테이지 ' + unlockStage(type);
-      }
-    }
+  /* 하나만 세울 수 있는 탑이 이미 서 있는가 */
+  function placedUnique(type) {
+    return TOWERS[type].unique && app.game.towers.some((t) => t.type === type);
   }
 
   /* ───── 선택·건설 ───── */
@@ -785,6 +1175,10 @@
   function setPlacing(type) {
     const g = app.game;
     if (type && (!g || !g.allowed.includes(type))) return;
+    if (type && placedUnique(type)) {
+      deny(josa(TOWERS[type].name, '은', '는') + ' 한 판에 하나만 세울 수 있습니다.');
+      return;
+    }
     app.placing = type;
     if (type) app.selected = null;
     refreshPanels();
@@ -798,7 +1192,10 @@
 
   function tap(tile, keep) {
     const g = app.game;
-    if (!g || !g.inBounds(tile.x, tile.y)) return;
+    if (!g || !g.inBounds(tile.x, tile.y)) {
+      if (g && !app.placing) select(null);
+      return;
+    }
     if (!app.placing) {
       select(g.towerAt(tile.x, tile.y));
       return;
@@ -815,8 +1212,9 @@
       deny('골드가 ' + (cost - g.gold) + ' 모자랍니다.');
       return;
     }
-    g.build(app.placing, tile.x, tile.y);
-    if (!(keep && g.gold >= cost)) setPlacing(null);
+    const built = g.build(app.placing, tile.x, tile.y);
+    if (!built || !(keep && g.gold >= cost) || placedUnique(app.placing)) setPlacing(null);
+    app.seen.gold = null;
   }
 
   function startWave() {
@@ -870,12 +1268,13 @@
     const t = app.selected;
     if (!t || !app.game) return;
     app.game.sell(t);
+    app.seen.gold = null;
     select(null);
   }
 
   function cycleTarget() {
     const t = app.selected;
-    if (!t || t.def.kind === 'aura') return;
+    if (!t || !t.lv.range || t.def.kind === 'aura') return;
     const i = TARGET_MODES.findIndex((m) => m.id === t.mode);
     t.mode = TARGET_MODES[(i + 1) % TARGET_MODES.length].id;
     Sfx.play('click');
@@ -897,16 +1296,16 @@
     el.tray.classList.toggle('is-selected', !!app.selected);
     el.placing.hidden = !app.placing;
     el.selected.hidden = !app.selected;
-    for (const type of TOWER_ORDER) app.cards[type].setAttribute('aria-pressed', String(app.placing === type));
-    if (app.placing) {
+    for (const type of Object.keys(app.cards)) app.cards[type].setAttribute('aria-pressed', String(app.placing === type));
+    if (app.placing && g) {
       const def = TOWERS[app.placing];
       el.plcName.textContent = def.name;
-      fillStats(el.plcStats, statList(app.placing, def.levels[0], null));
+      fillStats(el.plcStats, statList(app.placing, g.lvOf(app.placing, 0), null));
       el.plcBlurb.textContent = def.blurb;
     }
     const t = app.selected;
     if (t && g) {
-      const next = t.def.levels[t.level + 1] || null;
+      const next = t.def.levels[t.level + 1] ? g.lvOf(t.type, t.level + 1) : null;
       el.selName.textContent = t.def.name;
       el.selLevel.textContent = t.level + 1 + '단';
       fillStats(el.selStats, statList(t.type, t.lv, next));
@@ -918,7 +1317,7 @@
         el.upgrade.disabled = true;
       }
       el.sell.textContent = (t.fresh ? '무르기 +' : '판매 +') + g.sellValue(t) + 'G';
-      el.target.hidden = t.def.kind === 'aura';
+      el.target.hidden = !t.lv.range || t.def.kind === 'aura';
       el.target.textContent = '조준 · ' + TARGET_MODES.find((m) => m.id === t.mode).name;
     }
   }
@@ -927,7 +1326,9 @@
     const g = app.game;
     setText(el.lives, 'lives', String(g.lives));
     if (setText(el.gold, 'gold', String(g.gold))) {
-      for (const type of TOWER_ORDER) app.cards[type].classList.toggle('poor', g.allowed.includes(type) && g.gold < TOWERS[type].levels[0].cost);
+      for (const type of Object.keys(app.cards)) {
+        app.cards[type].classList.toggle('poor', g.gold < TOWERS[type].levels[0].cost || placedUnique(type));
+      }
       if (app.selected) refreshPanels();
     }
     setText(el.wave, 'wave', String(g.wave));
@@ -996,7 +1397,7 @@
           : g.stars() === 3
             ? '거의 놓치지 않고 막아냈습니다. 다음 스테이지가 열렸습니다.'
             : '다음 스테이지가 열렸습니다. 목숨을 ' + (g.maxLives - 2) + '개 이상 지키면 별 셋입니다.'
-        : g.wave + '번째 웨이브에서 괴수 떼가 성문을 넘었습니다. 다음 웨이브에 누가 오는지 보고 탑을 섞어 보세요.';
+        : g.wave + '번째 웨이브에서 괴수 떼가 성문을 넘었습니다. 뽑기로 새 탑을 얻거나 편성을 바꿔 다시 도전해 보세요.';
     } else {
       el.resEyebrow.textContent = '도전 모드 · ' + g.map.name;
       el.resTitle.textContent = won ? '성을 지켜냈습니다' : '성문이 뚫렸습니다';
@@ -1004,6 +1405,8 @@
         ? '서른 웨이브를 모두 막아냈습니다. 무한 모드로 이어 가면 괴수가 끝없이 거세집니다.'
         : g.wave + '번째 웨이브에서 괴수 떼가 성문을 넘었습니다.';
     }
+    el.resGems.hidden = !app.lastGems;
+    if (app.lastGems) gemText(el.resGems, '보석 +' + app.lastGems);
     el.tallyWave.textContent = String(won ? g.wave : g.wave - 1);
     el.tallyKills.textContent = String(g.stats.kills);
     el.tallyLives.textContent = String(g.lives);
@@ -1063,13 +1466,21 @@
     /* 로비와 그 아래 화면들 */
     click(el.play, () => { app.pick = frontier(); show('stages'); });
     click(el.cont, () => { if (!loadGame(app.save)) refreshLobby(); });
+    click(el.gachaBtn, () => show('gacha'));
+    click(el.invBtn, () => { app.invFrom = 'lobby'; show('inventory'); });
     click(el.challengeBtn, () => show('challenge'));
     click(el.codexBtn, () => show('codex'));
     click(el.stagesBack, () => show('lobby'));
+    click(el.gachaBack, () => show('lobby'));
+    click(el.invBack, () => show(app.invFrom));
     click(el.challengeBack, () => show('lobby'));
     click(el.codexBack, () => show('lobby'));
+    click(el.squadEdit, () => { app.invFrom = 'stages'; show('inventory'); });
     click(el.stageStart, () => startStage(app.pick));
     click(el.challengeStart, () => startChallenge());
+    el.pull1.addEventListener('click', () => pull(1));
+    el.pull5.addEventListener('click', () => pull(5));
+    el.equip.addEventListener('click', toggleEquip);
 
     /* 일시정지 메뉴 */
     click(el.resume, closePause);
@@ -1110,7 +1521,7 @@
       Sfx.unlock();
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (app.screen !== 'game') {
-        if (e.code === 'Escape' && app.screen !== 'lobby') show('lobby');
+        if (e.code === 'Escape' && app.screen !== 'lobby') show(app.screen === 'inventory' ? app.invFrom : 'lobby');
         return;
       }
       if (!el.result.hidden) return;
@@ -1122,8 +1533,8 @@
       const onControl = /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);
       const digit = /^Digit([1-5])$/.exec(e.code);
       if (digit) {
-        const type = TOWER_ORDER[Number(digit[1]) - 1];
-        setPlacing(app.placing === type ? null : type);
+        const type = g.allowed[Number(digit[1]) - 1];
+        if (type) setPlacing(app.placing === type ? null : type);
         return;
       }
       switch (e.code) {
@@ -1149,13 +1560,17 @@
 
   /* ───── 배치와 루프 ───── */
 
+  /* 전장은 화면 전체를 덮는다. 상황판 아래, 건설 서랍 위의 자리에 지도가 들어가도록 맞춘다. */
   function layout() {
-    const w = el.stage.clientWidth;
-    const h = el.stage.clientHeight;
-    if (w < 20 || h < 20) return;
-    app.renderer.resize(w, h);
-    el.board.style.left = Math.max(0, Math.floor((w - app.renderer.w) / 2)) + 'px';
-    el.board.style.top = Math.max(0, Math.floor((h - app.renderer.h) / 2)) + 'px';
+    if (app.screen === 'stages') drawTrail();
+    if (app.screen !== 'game') return;
+    const w = el.app.clientWidth;
+    const h = el.app.clientHeight;
+    if (w < 40 || h < 40) return;
+    const box = el.app.getBoundingClientRect();
+    const top = el.hud.getBoundingClientRect().bottom - box.top + 4;
+    const bottom = box.bottom - el.tray.getBoundingClientRect().top + 6;
+    app.renderer.fit(w, h, { top, bottom, side: 4 });
   }
 
   function frame(now) {
@@ -1164,9 +1579,13 @@
     app.last = now;
     app.time += dt;
 
-    if (app.screen !== 'game') sceneTick(dt);
+    if (app.screen !== 'game') {
+      sceneTick(dt);
+      if (app.screen === 'gacha') drawChest();
+      return;
+    }
     const g = app.game;
-    if (!g || app.screen !== 'game') return;
+    if (!g) return;
 
     const running = !app.paused && !app.menuOpen && el.result.hidden;
     if (running) {
@@ -1215,8 +1634,7 @@
   }
 
   function start(data) {
-    buildShop();
-    buildStageGrid();
+    buildStageTrail();
     buildChallenge();
     buildCodex();
     bindInput();
@@ -1226,7 +1644,12 @@
 
     if (!(data && data.save && loadGame(data.save))) show('lobby');
 
-    if (typeof ResizeObserver === 'function') new ResizeObserver(layout).observe(el.stage);
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(layout);
+      ro.observe(el.app);
+      ro.observe(el.tray);
+      ro.observe(el.trail);
+    }
     window.addEventListener('resize', layout);
     requestAnimationFrame((now) => {
       app.last = now;
