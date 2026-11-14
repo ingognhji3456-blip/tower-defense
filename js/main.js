@@ -1167,7 +1167,7 @@
 
   /* 하나만 세울 수 있는 탑이 이미 서 있는가 */
   function placedUnique(type) {
-    return TOWERS[type].unique && app.game.towers.some((t) => t.type === type);
+    return !!TOWERS[type].unique && app.game.towers.some((t) => t.type === type);
   }
 
   /* ───── 선택·건설 ───── */
@@ -1327,7 +1327,8 @@
     setText(el.lives, 'lives', String(g.lives));
     if (setText(el.gold, 'gold', String(g.gold))) {
       for (const type of Object.keys(app.cards)) {
-        app.cards[type].classList.toggle('poor', g.gold < TOWERS[type].levels[0].cost || placedUnique(type));
+        /* toggle 의 둘째 값이 undefined 면 켜짐·꺼짐이 뒤집히므로 반드시 참·거짓으로 넘긴다 */
+        app.cards[type].classList.toggle('poor', Boolean(g.gold < TOWERS[type].levels[0].cost || placedUnique(type)));
       }
       if (app.selected) refreshPanels();
     }
