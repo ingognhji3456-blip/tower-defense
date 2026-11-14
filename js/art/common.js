@@ -9,7 +9,7 @@
          원점은 타일 중심. 건물은 타일 아래쪽(y≈+0.4)에 발을 딛고 위로 솟는다.
          body·front 는 움직이지 않는 부분(렌더러가 미리 그려 두고 재사용), top 은 매 프레임 그리는 부분(무기·빛·깃발).
          그리는 순서는 body → top → front.  level 은 0·1·2, aim 은 화면 기준 조준 각도(라디안),
-         o = { recoil: 발사 직후 1 → 0, flash: 1 → 0, t: 초 }.
+         o = { recoil: 발사 직후 1 → 0, flash: 1 → 0, t: 초, load: 다음 공격 준비 0 → 1 (없으면 1로 본다) }.
          무기의 회전축은 (0, -TOWERS[type].levels[level].h) — 발사체가 그 높이에서 나간다.
 
    적    ENEMY_ART[type] = { draw(ctx, r, t, o), segment?(ctx, r, i, n, t) }

@@ -138,9 +138,9 @@ css/style.css          배치와 색
 js/data.js             탑·적·지도·스테이지·뽑기 수치 (밸런스는 여기서 고칩니다)
 js/sim.js              시뮬레이션. 화면 없이도 돌아갑니다
 js/art/common.js       그림 규격, 공통 색과 도형·소품 도우미
-js/art/tower-*.js      탑 그림 (처음의 열한 탑, 탑마다 한 파일, 1~3단)
+js/art/tower-*.js      탑 그림 (탑마다 한 파일, 1~3단. 단계마다 생김새가 달라집니다)
 js/art/kit.js          탑 그림 조립 도구 (몸통·지붕·소품)
-js/art/towers-*.js     등급별 탑 그림 (일반·희귀·영웅·전설)
+js/art/towers-*.js     나머지 탑 그림을 등급별로 묶은 파일 (일반·희귀·영웅·전설)
 js/art/enemy-*.js      적 그림 (적마다 한 파일)
 js/art/terrain.js      나무·바위·연못·괴수 굴·성문
 js/art/ui.js           뽑기 화면의 보물 상자

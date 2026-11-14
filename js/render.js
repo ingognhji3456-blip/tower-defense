@@ -739,6 +739,9 @@ class Renderer {
     ctx.translate(x, y);
     ctx.scale(this.ts, this.ts);
     const o = { recoil: tw.recoil, flash: tw.flash, t: t + tw.id };
+    /* load: 다음 공격이 얼마나 준비됐는지 (0 = 막 쏜 참, 1 = 준비 끝). 장전하는 모습을 그리는 탑들이 쓴다 */
+    const every = tw.lv.cd || tw.lv.every;
+    o.load = every && this.game.phase === 'wave' ? 1 - Math.max(0, Math.min(1, tw.cd / (every / tw.haste))) : 1;
     if (tw.type === 'lord') have = this.lordPose(tw, o, have, want, dt);
     art.top(ctx, tw.level, have, o);
     ctx.restore();
