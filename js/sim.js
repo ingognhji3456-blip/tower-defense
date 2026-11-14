@@ -146,6 +146,8 @@ class Game {
     this.shots = [];
     this.strikes = []; // 예고된 자리에 잠시 뒤 터지는 공격(불기둥·유성·낙뢰)
     this.traps = []; // 길 위에 깔린 덫
+    this.waves = []; // 자월: 날아가는 초승달 검기
+    this.orbs = []; // 자월: 공허 구슬
     this.queue = [];
     this.qi = 0;
     this.waveTime = 0;
@@ -271,6 +273,9 @@ class Game {
       crossT: 2, // 홍련: 다음 십자 베기까지
       crossAim: null, // 홍련: 십자 베기로 가를 적
       swordT: 4, // 홍련: 다음 화염검 낙하까지
+      orbT: 2.5, // 자월: 다음 공허 구슬까지
+      orbAim: null, // 자월: 구슬을 던질 적
+      eclipseT: 5, // 자월: 다음 월식까지
       kills: 0,
       dealt: 0,
     };
@@ -336,6 +341,9 @@ class Game {
       } else if (t.def.mech === 'lord') {
         if (t.level === 1) t.pillarT = Math.min(t.pillarT, 0.5);
         else t.meteorT = Math.min(t.meteorT, 0.5);
+      } else if (t.def.mech === 'moon') {
+        if (t.level === 1) t.orbT = Math.min(t.orbT, 0.5);
+        else t.eclipseT = Math.min(t.eclipseT, 0.5);
       }
     }
     this.emit('upgrade', { tower: t, learn });
@@ -461,6 +469,8 @@ class Game {
       this.updateTowers(dt);
       this.updateStrikes(dt);
       this.updateTraps(dt);
+      this.updateWaves(dt);
+      this.updateOrbs(dt);
     } else if (this.phase === 'build') {
       for (const t of this.towers) {
         t.recoil = Math.max(0, t.recoil - dt * 4);
@@ -620,6 +630,7 @@ class Game {
         case 'trap': this.runTrap(t, dt); continue;
         case 'lord': this.runLord(t, dt); continue;
         case 'blade': this.runBlade(t, dt); continue;
+        case 'moon': this.runMoon(t, dt); continue;
       }
       if (t.burst > 0) {
         t.burstT -= dt;
@@ -1078,6 +1089,14 @@ class Game {
     if (!list.length) return;
     for (const s of list) {
       s.t += dt;
+      if (s.snare && !s.snared && s.t >= s.delay * s.snareAt) {
+        /* 월식: 빛기둥이 솟기 전에 가시가 돋아 그 안의 적을 옭아맨다 */
+        s.snared = true;
+        for (const e of this.enemies) {
+          if (e.alive && (e.x - s.x) ** 2 + (e.y - s.y) ** 2 <= (s.r + e.r * 0.5) ** 2) this.strike(e, s.src, { stun: s.snare }, 1);
+        }
+        this.emit('burst', { kind: 'snare', x: s.x, y: s.y, r: s.r });
+      }
       if (s.t < s.delay) continue;
       this.blast(s.x, s.y, s.r, s.src, s.fx);
       this.emit('burst', { kind: s.kind, x: s.x, y: s.y, r: s.r });
@@ -1288,6 +1307,169 @@ class Game {
       this.emit('hit', { kind: 'slash', skin: 'ember', x: e.x, y: e.y });
     }
     this.emit('shoot', { kind: 'blade', step, tower: t });
+  }
+
+  /* ───── 자월(영웅) ─────
+     보랏빛 큰 낫을 휘둘러 초승달 검기를 날린다. 검기는 겨눈 쪽으로 곧게 날아가며 지나는 적을 모두 벤다.
+     세 번째 공격은 몸 둘레를 한 바퀴 베는 원월. 2단부터는 적 무리를 붙잡아 두었다가 물어뜯는 공허 구슬을,
+     3단에서는 땅에 달 그림자를 새겨 적을 옭아맨 뒤 빛기둥으로 터뜨리는 월식을 쓴다. */
+  runMoon(t, dt) {
+    const lv = t.lv;
+    if (t.cast > 0) t.cast = Math.max(0, t.cast - dt);
+    if (t.cd > 0) t.cd -= dt;
+    if (t.orbT > 0) t.orbT -= dt;
+    if (t.eclipseT > 0) t.eclipseT -= dt;
+    if (t.slash) {
+      t.slash.t += dt;
+      if (t.slash.t >= t.slash.dur) t.slash = null;
+    }
+    /* 공허 구슬: 손을 내뻗는 순간 떠난다. 날아가는 동안 적이 갈 자리를 겨눈다 */
+    if (t.orbAim && t.cast <= t.castDur * MOON_ORB_AT) {
+      const e = t.orbAim;
+      t.orbAim = null;
+      const p = { x: e.x, y: e.y };
+      if (e.alive) {
+        const fly = Math.hypot(e.x - t.cx, e.y - t.cy) / MOON_ORB_SPEED;
+        e.path.at(Math.min(e.path.length, e.dist + (e.cur || e.speed) * fly), p);
+      }
+      this.orbs.push({
+        x: t.cx, y: t.cy, x0: t.cx, y0: t.cy, tx: p.x, ty: p.y, t: 0, tick: 0, phase: 'fly',
+        fly: Math.max(0.12, Math.hypot(p.x - t.cx, p.y - t.cy) / MOON_ORB_SPEED),
+        r: MOON_ORB_R, dps: lv.orbDps, dmg: lv.orb, src: t, seed: this.rand(),
+      });
+      this.emit('shoot', { kind: 'orb', tower: t });
+    }
+    const target = this.pickTarget(t);
+    t.idle = !target;
+    if (!target) return;
+    if (!t.slash) {
+      t.aimX = target.x;
+      t.aimY = target.y;
+      t.mid = Math.atan2(target.y - t.cy, target.x - t.cx);
+    }
+    if (t.cast > 0 || t.slash) return; /* 하던 몸짓과 베기가 끝날 때까지는 새로 시작하지 않는다 */
+    const r2 = t.range * t.range;
+    const near = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2);
+    if (lv.eclipse && t.eclipseT <= 0 && near.length) {
+      /* 월식: 가장 센 적의 발밑에 달 그림자를 새긴다 */
+      const e = near.reduce((a, b) => (b.hp > a.hp ? b : a));
+      t.eclipseT = MOON_ECLIPSE_EVERY;
+      this.lordGesture(t, 'eclipse', 1.0);
+      const p = {};
+      e.path.at(Math.min(e.path.length, e.dist + (e.cur || e.speed) * MOON_ECLIPSE_DELAY * MOON_ECLIPSE_SNARE), p);
+      this.strikes.push({
+        kind: 'eclipse', x: p.x, y: p.y, t: 0, delay: MOON_ECLIPSE_DELAY, r: MOON_ECLIPSE_R,
+        fx: { dmg: lv.eclipse, dtype: 'magic' }, src: t, seed: this.rand(), snare: MOON_ECLIPSE_STUN, snareAt: MOON_ECLIPSE_SNARE,
+      });
+      t.aimX = p.x;
+      t.aimY = p.y;
+      t.mid = Math.atan2(p.y - t.cy, p.x - t.cx);
+      this.emit('cast', { kind: 'eclipse', tower: t });
+      return;
+    }
+    if (lv.orb && t.orbT <= 0 && near.length) {
+      /* 공허 구슬: 적이 가장 많이 몰린 곳으로 던진다 */
+      let best = near[0];
+      let most = 0;
+      for (const e of near) {
+        let c = 0;
+        for (const o of this.enemies) {
+          if (o.alive && (o.x - e.x) ** 2 + (o.y - e.y) ** 2 <= MOON_ORB_R * MOON_ORB_R) c += o.boss ? 4 : 1;
+        }
+        if (c > most) { most = c; best = e; }
+      }
+      t.orbT = MOON_ORB_EVERY;
+      this.lordGesture(t, 'orb', 0.6);
+      t.orbAim = best;
+      t.aimX = best.x;
+      t.aimY = best.y;
+      t.mid = Math.atan2(best.y - t.cy, best.x - t.cx);
+      this.emit('cast', { kind: 'orb', tower: t });
+      return;
+    }
+    if (t.cd > 0) return;
+    const step = t.combo;
+    const ring = step === 2;
+    t.combo = (step + 1) % 3;
+    t.cd = (lv.cd * (ring ? MOON_REST : 1)) / t.haste;
+    t.recoil = 1;
+    t.flash = 1;
+    t.slash = { t: 0, dur: ring ? MOON_SPIN : MOON_SWING, step, a: t.mid };
+    if (ring) {
+      /* 원월: 몸 둘레를 한 바퀴 베어 느리게 한다 */
+      const fx = { dmg: lv.dmg * lv.finish, dtype: 'magic', slow: MOON_RING_SLOW, slowT: 1.6 };
+      for (const e of this.enemies) {
+        if (!e.alive || (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 > (lv.ring + e.r * 0.5) ** 2) continue;
+        this.strike(e, t, fx, 1);
+        this.emit('hit', { kind: 'slash', skin: 'void', x: e.x, y: e.y });
+      }
+    } else {
+      /* 초승달 검기: 낫이 앞을 지나는 순간 떠나, 곧게 날아가며 지나는 적을 모두 벤다 */
+      this.waves.push({
+        x: t.cx, y: t.cy, a: t.mid, d: 0.25, max: t.range + 0.35, wait: MOON_WAVE_AT, hit: [],
+        src: t, fx: { dmg: lv.dmg, dtype: 'magic' }, flip: step === 1, level: t.level, seed: this.rand(),
+      });
+    }
+    this.emit('shoot', { kind: 'moon', step, tower: t });
+  }
+
+  /* 날아가는 검기: 이번 틱에 지나간 자리의 적을 한 번씩 벤다 */
+  updateWaves(dt) {
+    const list = this.waves;
+    if (!list.length) return;
+    for (const w of list) {
+      if (w.wait > 0) { w.wait -= dt; continue; }
+      const prev = w.d;
+      w.d = Math.min(w.max, w.d + MOON_WAVE_SPEED * dt);
+      const cx = Math.cos(w.a);
+      const sy = Math.sin(w.a);
+      for (const e of this.enemies) {
+        if (!e.alive || w.hit.includes(e)) continue;
+        const rx = e.x - w.x;
+        const ry = e.y - w.y;
+        const along = rx * cx + ry * sy;
+        if (along < prev - 0.35 || along > w.d + e.r * 0.5) continue;
+        if (Math.abs(ry * cx - rx * sy) > MOON_WAVE_HALF + e.r * 0.5) continue;
+        w.hit.push(e);
+        this.strike(e, w.src, w.fx, 1);
+        this.emit('hit', { kind: 'slash', skin: 'void', x: e.x, y: e.y });
+      }
+    }
+    this.waves = list.filter((w) => w.d < w.max);
+  }
+
+  /* 공허 구슬: 날아가 자리 잡으면 둘레의 적을 붙잡아 깎다가, 때가 되면 닫히며 물어뜯는다 */
+  updateOrbs(dt) {
+    const list = this.orbs;
+    if (!list.length) return;
+    for (const o of list) {
+      o.t += dt;
+      if (o.phase === 'fly') {
+        const k = Math.min(1, o.t / o.fly);
+        o.x = o.x0 + (o.tx - o.x0) * k;
+        o.y = o.y0 + (o.ty - o.y0) * k;
+        if (k >= 1) {
+          o.phase = 'hold';
+          o.t = 0;
+          this.emit('burst', { kind: 'vortex', x: o.x, y: o.y, r: o.r });
+        }
+        continue;
+      }
+      o.tick -= dt;
+      if (o.tick <= 0) {
+        o.tick += 0.25;
+        for (const e of this.enemies) {
+          if (!e.alive || (e.x - o.x) ** 2 + (e.y - o.y) ** 2 > (o.r + e.r * 0.5) ** 2) continue;
+          this.strike(e, o.src, { dmg: o.dps * 0.25, dtype: 'magic', slow: MOON_ORB_SLOW, slowT: 0.45 }, 1, true);
+        }
+      }
+      if (o.t >= MOON_ORB_HOLD) {
+        o.dead = true;
+        this.blast(o.x, o.y, o.r * 1.15, o.src, { dmg: o.dmg, dtype: 'magic' });
+        this.emit('burst', { kind: 'bite', x: o.x, y: o.y, r: o.r });
+      }
+    }
+    this.orbs = list.filter((o) => !o.dead);
   }
 
   /* 홍련의 기술이 닿는 적들: 센 적부터 */

@@ -203,6 +203,16 @@
         ['거리', (l) => f1(l.range)],
       ];
     }
+    if (def.mech === 'moon') {
+      return [
+        ['검기', (l) => f1(l.dmg)],
+        ['원월', (l) => f1(l.dmg * l.finish)],
+        ['공허 구슬', (l) => (l.orb ? '초당 ' + f1(l.orbDps) + ' + ' + f1(l.orb) : '—')],
+        ['월식', (l) => (l.eclipse ? f1(l.eclipse) : '—')],
+        ['연사', (l) => f1(1 / l.cd)],
+        ['거리', (l) => f1(l.range)],
+      ];
+    }
     if (def.mech === 'blade') {
       return [
         ['베기', (l) => f1(l.dmg)],

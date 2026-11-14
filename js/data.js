@@ -40,6 +40,7 @@ const TARGET_MODES = [
      income   골드를 번다. interest 는 웨이브가 끝날 때 가진 골드에 붙는 이자(cap 까지)
      lord     영웅 화염파
      blade    영웅 홍련
+     moon     영웅 자월
    맞은 적에게 걸리는 효과: slow·slowT(둔화), stun(기절), dot·dotT(지속 피해), shred·shredMax(갑옷 깎기),
      kb(뒤로 밀어내기), exec(체력이 이 비율 아래면 즉사), bounty(이 탑이 처치하면 더 받는 골드).
    dtype 은 피해의 종류: 'phys'(갑옷에 깎인다, 기본값) 또는 'magic'. pierce 면 갑옷을 무시한다. */
@@ -441,6 +442,20 @@ const TOWERS = {
       { cost: 800, dmg: 60, cd: 0.5, range: 2.4, arc: 2.6, finish: 2.0, dot: 18, cross: 380, sword: 190, swords: 3, h: 0.56 },
     ],
   },
+  /* 영웅: 보랏빛 큰 낫을 든 자월. 낫을 휘둘러 초승달 검기를 날리고, 적을 붙잡아 한데 묶어 터뜨린다.
+     dmg 는 검기가 적 하나에게 주는 피해, ring 은 세 번째 공격인 원월의 반지름, finish 는 원월의 피해 배율,
+     orb·orbDps 는 2단부터 쓰는 공허 구슬이 닫히며 물어뜯는 피해와 붙잡아 두는 동안의 초당 피해,
+     eclipse 는 3단의 월식(빛기둥) 피해, h 는 가슴 높이. */
+  moon: {
+    name: '자월', rarity: 'mythic', unique: true, mech: 'moon', dtype: 'magic',
+    learn: [null, '공허 구슬', '월식'], /* 그 단계에 올라서며 익히는 공격 */
+    blurb: '보랏빛 큰 낫을 휘둘러 초승달 검기를 날립니다. 검기는 곧게 날아가며 지나는 적을 모두 베고, 세 번째 공격은 몸 둘레를 한 바퀴 베어 느리게 합니다. 2단에서 적 무리를 붙잡아 두었다가 물어뜯는 공허 구슬, 3단에서 적을 옭아맨 뒤 빛기둥으로 터뜨리는 월식을 익힙니다. 껍질을 무시합니다. 한 판에 하나만 세울 수 있습니다.',
+    levels: [
+      { cost: 540, dmg: 52, cd: 0.85, range: 3.0, ring: 1.8, finish: 2.0, h: 0.42 },
+      { cost: 480, dmg: 60, cd: 0.8, range: 3.3, ring: 1.9, finish: 2.0, orb: 100, orbDps: 18, h: 0.48 },
+      { cost: 840, dmg: 80, cd: 0.74, range: 3.6, ring: 2.0, finish: 2.1, orb: 170, orbDps: 32, eclipse: 560, h: 0.56 },
+    ],
+  },
 };
 
 /* 화면에 늘어놓는 순서: 등급 순, 같은 등급 안에서는 위에 적은 순 */
@@ -479,6 +494,24 @@ const BLADE_CROSS_R = 0.7; // 십자 베기가 번지는 반지름(칸)
 const BLADE_SWORD_EVERY = 9; // 화염검 낙하를 쓰는 간격(초)
 const BLADE_SWORD_DELAY = 0.6; // 첫 화염검이 떨어지기까지(초)
 const BLADE_SWORD_R = 0.75; // 화염검 하나가 터지는 반지름(칸)
+const MOON_SWING = 0.26; // 자월: 낫을 한 번 휘두르는 시간(초)
+const MOON_SPIN = 0.46; // 원월이 한 바퀴 도는 시간(초)
+const MOON_REST = 1.5; // 원월 뒤에는 공격 사이의 틈이 이만큼(배) 길다
+const MOON_WAVE_AT = 0.11; // 낫을 휘두르기 시작해 검기가 떠나기까지(초)
+const MOON_WAVE_SPEED = 9; // 검기가 날아가는 빠르기(칸/초)
+const MOON_WAVE_HALF = 0.6; // 검기의 반 너비(칸)
+const MOON_RING_SLOW = 0.35; // 원월에 맞은 적이 느려지는 정도
+const MOON_ORB_EVERY = 7; // 공허 구슬을 쓰는 간격(초)
+const MOON_ORB_AT = 0.5; // 몸짓이 이만큼 남았을 때(전체의 비율) 구슬이 손을 떠난다
+const MOON_ORB_SPEED = 6.5; // 구슬이 날아가는 빠르기(칸/초)
+const MOON_ORB_HOLD = 2.2; // 구슬이 적을 붙잡아 두는 시간(초)
+const MOON_ORB_R = 1.15; // 구슬이 붙잡는 반지름(칸)
+const MOON_ORB_SLOW = 0.8; // 구슬 안의 적이 느려지는 정도
+const MOON_ECLIPSE_EVERY = 12; // 월식을 쓰는 간격(초)
+const MOON_ECLIPSE_DELAY = 1.1; // 달 그림자가 새겨진 뒤 빛기둥이 솟기까지(초)
+const MOON_ECLIPSE_SNARE = 0.42; // 그사이 이만큼 지났을 때(비율) 가시가 돋아 적을 옭아맨다
+const MOON_ECLIPSE_R = 1.3; // 월식의 반지름(칸)
+const MOON_ECLIPSE_STUN = 1.3; // 옭아매는 시간(초)
 const BEAM_RAMP = 0.8; // 광선탑: 같은 적을 비춘 시간 1초마다 피해가 이만큼(배) 더 붙는다. 최대 3배.
 
 /* ───────── 뽑기와 등급 ─────────
@@ -506,7 +539,7 @@ function towerStats(type, level, rank) {
   if (!rank) return base;
   const k = 1 + RANK_BONUS * rank;
   const lv = Object.assign({}, base);
-  for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor', 'cross', 'sword']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
+  for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor', 'cross', 'sword', 'orb', 'orbDps', 'eclipse']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
   if (lv.income) lv.income = Math.round(lv.income * (1 + 0.1 * rank));
   const mech = TOWERS[type].mech;
   if (mech === 'aura' || mech === 'buff') lv.range = Math.round(lv.range * (1 + 0.05 * rank) * 100) / 100;

@@ -24,6 +24,11 @@ const POOF = {
   dragon: ['#dc3d2c', '#ff8f6b', '#f4b93a'],
 };
 
+/* 초승달 검기의 빛깔: 바깥에 끌리는 짙은 빛 → 가장 밝은 안쪽 */
+const FLAME_ARC = ['122,26,14', '232,85,42', '255,170,60', '255,241,168'];
+const VIOLET_ARC = { c: ['42,15,74', '142,45,226', '224,64,251', '248,183,255'] };
+const VIOLET_MOON = { c: VIOLET_ARC.c, sym: true }; /* 양 끝이 고르게 뾰족한 초승달 */
+
 /* 쏘는 즉시 맞는 공격이 남기는 궤적이 보이는 시간(초) */
 const TRACE = { bullet: 0.16, spear: 0.2, tracer: 0.07, rail: 0.32, scythe: 0.26, toss: 0.22 };
 
@@ -92,6 +97,8 @@ class Renderer {
     this.columns = []; // 화염파의 불기둥
     this.cuts = []; // 홍련의 십자 베기 자국
     this.scars = []; // 기술이 땅에 남긴 그을린 자국
+    this.claws = []; // 자월: 월식의 가시
+    this.bites = []; // 자월: 공허 구슬이 닫히며 터지는 순간
   }
 
   setGame(game) {
@@ -410,6 +417,19 @@ class Renderer {
         else if (d.kind === 'lord') {
           const tw = d.tower;
           this.rings.push({ x: tw.cx, y: tw.cy + 0.2, r: 0.9, life: 0.3, max: 0.3, color: '255,150,40' });
+        } else if (d.kind === 'moon') {
+          /* 낫을 긋는 순간: 원월은 둘레로 보랏빛 고리가 퍼진다 */
+          const tw = d.tower;
+          if (d.step === 2) {
+            this.rings.push({ x: tw.cx, y: tw.cy, r: tw.lv.ring * 1.15, life: 0.36, max: 0.36, color: '224,64,251' });
+            this.spark(tw.cx, tw.cy, 18, { color: ['#f8b7ff', '#e040fb', '#8e2de2', '#ffffff'], speed: tw.lv.ring * 2.6, life: 0.38, size: 0.07, lift: -0.3 });
+            if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.07);
+          } else {
+            this.spark(tw.cx + Math.cos(tw.mid) * 0.6, tw.cy + Math.sin(tw.mid) * 0.6, 6, { color: ['#f8b7ff', '#e040fb', '#8e2de2'], speed: 2, life: 0.3, size: 0.06, lift: -0.4, spread: 0.5 });
+          }
+        } else if (d.kind === 'orb') {
+          const tw = d.tower;
+          this.rings.push({ x: tw.cx, y: tw.cy + 0.1, r: 0.8, life: 0.3, max: 0.3, color: '224,64,251' });
         } else if (d.kind === 'blade') {
           /* 칼을 긋는 순간 칼끝 쪽에서 불티가 튄다. 회전 베기는 둘레로 고리가 퍼진다 */
           const tw = d.tower;
@@ -489,6 +509,32 @@ class Renderer {
           this.columns.push({ kind: 'thunder', x: d.x, y: d.y, r: d.r, life: 0.24, max: 0.24, seed: Math.random() });
           this.rings.push({ x: d.x, y: d.y, r: d.r * 1.2, life: 0.3, max: 0.3, color: '203,166,255' });
           this.spark(d.x, d.y, 8, { color: ['#ffffff', '#cba6ff', '#9cddf8'], speed: 2.6, life: 0.3, size: 0.05 });
+        } else if (d.kind === 'vortex') {
+          /* 공허 구슬이 자리 잡고 입을 벌린다 */
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 1.25, life: 0.35, max: 0.35, color: '224,64,251' });
+          this.spark(d.x, d.y, 10, { color: ['#f8b7ff', '#e040fb', '#8e2de2'], speed: 2.4, life: 0.35, size: 0.06 });
+        } else if (d.kind === 'bite') {
+          /* 구슬이 닫히며 물어뜯는다: 가시가 사방으로 튄다 */
+          this.bites.push({ x: d.x, y: d.y, r: d.r, life: 0.42, max: 0.42, seed: Math.random() });
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 1.7, life: 0.4, max: 0.4, color: '224,64,251' });
+          this.spark(d.x, d.y, 24, { color: ['#ffffff', '#f8b7ff', '#e040fb', '#8e2de2'], speed: 4, life: 0.45, size: 0.08, lift: -0.4 });
+          this.spark(d.x, d.y, 7, { color: ['#3b2f52', '#56506a'], speed: 0.9, life: 0.8, size: 0.15, lift: -0.5, soft: true });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.14);
+        } else if (d.kind === 'snare') {
+          /* 월식: 달 그림자 둘레에서 가시가 돋아 적을 옭아맨다 */
+          const life = MOON_ECLIPSE_DELAY * (1 - MOON_ECLIPSE_SNARE) + 0.3;
+          this.claws.push({ x: d.x, y: d.y, r: d.r, life, max: life, seed: Math.random() * 6 });
+          this.spark(d.x, d.y, 14, { color: ['#f8b7ff', '#e040fb', '#8e2de2'], speed: 2.6, life: 0.4, size: 0.06, lift: -1, spread: d.r });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.08);
+        } else if (d.kind === 'eclipse') {
+          /* 월식: 보랏빛 빛기둥이 솟는다 */
+          this.columns.push({ kind: 'eclipse', x: d.x, y: d.y, r: d.r, life: 1.15, max: 1.15, seed: Math.random() });
+          this.scars.push({ kind: 'moon', x: d.x, y: d.y, r: d.r, seed: Math.random(), life: 2.6, max: 2.6 });
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 2.4, life: 0.6, max: 0.6, color: '224,64,251' });
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 1.5, life: 0.9, max: 0.9, color: '255,255,255' });
+          this.spark(d.x, d.y, 34, { color: ['#ffffff', '#f8b7ff', '#e040fb', '#8e2de2'], speed: 4.6, life: 0.7, size: 0.085, lift: -2, spread: d.r });
+          this.spark(d.x, d.y, 10, { color: ['#3b2f52', '#56506a', '#2a0f4a'], speed: 1.2, life: 1, size: 0.17, lift: -0.7, soft: true, spread: d.r });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.32);
         } else if (d.kind === 'cross') {
           /* 십자 베기: 엇갈린 두 줄의 불꽃 칼자국 */
           const seed = Math.random();
@@ -619,6 +665,7 @@ class Renderer {
     this.drawBeams(ctx, t);
     this.drawSweeps(ctx, t);
     this.drawSlashes(ctx, t, dt);
+    this.drawMoon(ctx, t, dt);
     this.drawStrikes(ctx, t, dt);
     this.drawShots(ctx, t);
     this.drawEffects(ctx, dt);
@@ -788,7 +835,7 @@ class Renderer {
     const every = tw.lv.cd || tw.lv.every;
     o.load = every && this.game.phase === 'wave' ? 1 - Math.max(0, Math.min(1, tw.cd / (every / tw.haste))) : 1;
     if (tw.type === 'lord') have = this.lordPose(tw, o, have, want, dt);
-    else if (tw.def.mech === 'blade') have = this.bladePose(tw, o, have, want, dt);
+    else if (tw.def.mech === 'blade' || tw.def.mech === 'moon') have = this.bladePose(tw, o, have, want, dt);
     art.top(ctx, tw.level, have, o);
     ctx.restore();
     if (art.front) this.blit(ctx, this.sprite('f:' + tw.type + ':' + tw.level, BOX_TOWER, (g) => art.front(g, tw.level)), x, y);
@@ -831,13 +878,13 @@ class Renderer {
     return { k, head: s.a0 + (s.a1 - s.a0) * head, tail: s.a0 + (s.a1 - s.a0) * tail };
   }
 
-  /* 홍련의 몸짓을 정한다. 베는 동안에는 칼이 그 베기의 궤적을 그대로 따르고,
+  /* 홍련·자월의 몸짓을 정한다. 베는 동안에는 칼(낫)이 그 베기의 궤적을 그대로 따르고,
      쉬는 동안에는 다음에 벨 자리(머리 위·앞 아래·등 뒤)로 부드럽게 옮겨 간다. */
   bladePose(tw, o, have, want, dt) {
-    const art = TOWER_ART.blade;
+    const art = TOWER_ART[tw.type];
     let st = this.poses.get(tw.id);
     if (!st) {
-      st = { face: Math.cos(want) >= 0 ? 1 : -1, th: art.REST, idle: 1 };
+      st = { face: Math.cos(want) >= 0 ? 1 : -1, th: art.REST == null ? -Math.PI / 2 : art.REST, idle: 1 };
       this.poses.set(tw.id, st);
     }
     const s = tw.slash;
@@ -865,6 +912,8 @@ class Renderer {
     o.cast = tw.cast > 0 ? tw.cast / (tw.castDur || 1) : 0;
     o.charge = tw.lv.swords ? 1 - Math.max(0, Math.min(1, tw.swordT / BLADE_SWORD_EVERY)) : 0;
     o.chargeX = tw.lv.cross ? 1 - Math.max(0, Math.min(1, tw.crossT / BLADE_CROSS_EVERY)) : 0;
+    o.chargeO = tw.lv.orb ? 1 - Math.max(0, Math.min(1, tw.orbT / MOON_ORB_EVERY)) : 0;
+    o.chargeE = tw.lv.eclipse ? 1 - Math.max(0, Math.min(1, tw.eclipseT / MOON_ECLIPSE_EVERY)) : 0;
     return have;
   }
 
@@ -995,6 +1044,10 @@ class Renderer {
       const x = this.px(s.x, s.y);
       const y = this.py(s.x, s.y);
       const r = s.r * ts;
+      if (s.kind === 'eclipse') {
+        this.moonSigil(ctx, x, y, r * (0.3 + 0.7 * Math.min(1, k / 0.22)), k, t);
+        continue;
+      }
       ctx.fillStyle = `rgba(255,120,30,${0.1 + 0.22 * k})`;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -1048,6 +1101,19 @@ class Renderer {
       const k = c.life / c.max; /* 1 → 0 */
       const x = this.px(c.x, c.y);
       const y = this.py(c.x, c.y);
+      if (c.kind === 'moon') {
+        /* 월식이 지나간 자리: 그을린 둥근 자국과 식어 가는 보랏빛 테두리 */
+        ctx.fillStyle = `rgba(30,14,48,${0.4 * Math.min(1, k * 2)})`;
+        ctx.beginPath();
+        ctx.arc(x, y, c.r * ts * 0.95, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(224,64,251,${0.85 * k * k})`;
+        ctx.lineWidth = Math.max(1, ts * 0.06);
+        ctx.beginPath();
+        ctx.arc(x, y, c.r * ts * 0.95, 0, Math.PI * 2);
+        ctx.stroke();
+        continue;
+      }
       const lines = [];
       if (c.kind === 'x') {
         const L = c.r * ts * 1.25;
@@ -1146,6 +1212,10 @@ class Renderer {
         ctx.beginPath();
         ctx.ellipse(x, y, ts * 0.7, ts * 0.26, 0, 0, Math.PI * 2);
         ctx.fill();
+        continue;
+      }
+      if (c.kind === 'eclipse') {
+        this.moonPillar(ctx, c, k, t);
         continue;
       }
       if (c.kind === 'thunder') {
@@ -1247,14 +1317,16 @@ class Renderer {
 
   /* 초승달 모양 검기 한 줄. 전장의 (cx, cy) 를 중심으로 a0(꼬리) → a1(머리) 를 잇는다.
      가운데가 가장 두껍고 양 끝은 뾰족하며, 바깥 테두리로 갈수록 밝다. */
-  crescent(ctx, cx, cy, a0, a1, R, thick, alpha, seed) {
+  crescent(ctx, cx, cy, a0, a1, R, thick, alpha, seed, pal) {
     const ts = this.ts;
+    const c = pal ? pal.c : FLAME_ARC;
+    const sym = !!(pal && pal.sym);
     const span = a1 - a0;
     const n = Math.max(6, Math.ceil(Math.abs(span) / 0.14));
     const lift = ts * 0.2;
     const pt = (a, r) => [this.px(cx + Math.cos(a) * r, cy + Math.sin(a) * r), this.py(cx + Math.cos(a) * r, cy + Math.sin(a) * r) - lift];
     /* 두께: 머리 가까이가 가장 두껍다 */
-    const prof = (f) => Math.sin(Math.PI * Math.pow(f, 1.45));
+    const prof = sym ? (f) => Math.pow(Math.sin(Math.PI * f), 0.75) : (f) => Math.sin(Math.PI * Math.pow(f, 1.45));
     const layer = (out, th, color, ragged) => {
       ctx.beginPath();
       for (let i = 0; i <= n; i++) {
@@ -1272,18 +1344,20 @@ class Renderer {
       ctx.fillStyle = color;
       ctx.fill();
     };
-    layer(0.05, thick * 1.5, `rgba(122,26,14,${0.5 * alpha})`, true); /* 뒤에 끌리는 검붉은 불길 */
-    layer(0.03, thick, `rgba(232,85,42,${0.88 * alpha})`, true);
-    layer(0, thick * 0.62, `rgba(255,170,60,${0.95 * alpha})`, false);
-    layer(-0.015, thick * 0.3, `rgba(255,241,168,${alpha})`, false);
+    layer(0.05, thick * 1.5, `rgba(${c[0]},${0.5 * alpha})`, true); /* 뒤에 끌리는 짙은 빛 */
+    layer(0.03, thick, `rgba(${c[1]},${0.88 * alpha})`, true);
+    layer(0, thick * 0.62, `rgba(${c[2]},${0.95 * alpha})`, false);
+    layer(-0.015, thick * 0.3, `rgba(${c[3]},${alpha})`, false);
     /* 가장 뜨거운 바깥 날 */
     ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
     ctx.lineWidth = Math.max(1, ts * 0.045);
     ctx.lineCap = 'round';
     ctx.beginPath();
-    for (let i = Math.floor(n * 0.35); i <= n; i++) {
+    const from = Math.floor(n * (sym ? 0.2 : 0.35));
+    const to = sym ? Math.ceil(n * 0.8) : n;
+    for (let i = from; i <= to; i++) {
       const p = pt(a0 + (span * i) / n, R + 0.01);
-      if (i === Math.floor(n * 0.35)) ctx.moveTo(p[0], p[1]);
+      if (i === from) ctx.moveTo(p[0], p[1]);
       else ctx.lineTo(p[0], p[1]);
     }
     ctx.stroke();
@@ -1431,6 +1505,363 @@ class Renderer {
       }
     }
     this.cuts.length = n;
+  }
+
+  /* 월식의 달 그림자: 땅에 새겨지는 보랏빛 진. k 는 빛기둥이 솟기까지의 진행(0 → 1) */
+  moonSigil(ctx, x, y, r, k, t) {
+    const ts = this.ts;
+    ctx.fillStyle = `rgba(74,24,140,${0.2 + 0.28 * k})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineCap = 'round';
+    for (const [w, color] of [[0.1, `rgba(142,45,226,${0.55 + 0.45 * k})`], [0.045, `rgba(248,183,255,${0.6 + 0.4 * k})`]]) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1.5, ts * w);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    /* 안쪽에서 도는 끊긴 고리 */
+    ctx.strokeStyle = `rgba(224,64,251,${0.7 + 0.3 * k})`;
+    ctx.lineWidth = Math.max(1.5, ts * 0.05);
+    ctx.setLineDash([ts * 0.22, ts * 0.14]);
+    ctx.lineDashOffset = -t * ts * 1.4;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.72, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    /* 한가운데의 초승달 */
+    ctx.fillStyle = `rgba(248,183,255,${0.55 + 0.45 * k})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.34, 0.75, Math.PI * 2 - 0.75);
+    ctx.arc(x + r * 0.17, y, r * 0.27, Math.PI * 2 - 1.1, 1.1, true);
+    ctx.closePath();
+    ctx.fill();
+    /* 네 귀의 눈금 */
+    ctx.strokeStyle = `rgba(248,183,255,${0.5 + 0.5 * k})`;
+    ctx.lineWidth = Math.max(1.5, ts * 0.05);
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const a = t * 0.6 + (i * Math.PI) / 2;
+      ctx.moveTo(x + Math.cos(a) * r * 0.8, y + Math.sin(a) * r * 0.8);
+      ctx.lineTo(x + Math.cos(a) * r * 0.95, y + Math.sin(a) * r * 0.95);
+    }
+    ctx.stroke();
+  }
+
+  /* 월식의 빛기둥: 톱날 같은 가장자리의 보랏빛 기둥 속에 흰 불길이 솟고, 양옆으로 검보라 연기가 피어오른다 */
+  moonPillar(ctx, c, k, t) {
+    const ts = this.ts;
+    const x = this.px(c.x, c.y);
+    const y = this.py(c.x, c.y);
+    const up = Math.min(1, (1 - k) * 8); /* 솟는 정도 */
+    const fade = Math.min(1, k * 2.4);
+    const w = c.r * ts * (0.72 + 0.22 * k);
+    const h = ts * 7.5 * up;
+    /* 양옆에서 피어오르는 검보라 연기 */
+    for (let i = 0; i < 10; i++) {
+      const side = i % 2 ? 1 : -1;
+      const f = (t * 0.8 + i * 0.37 + c.seed) % 1;
+      const bx = x + side * w * (0.95 + 0.35 * Math.sin(i * 1.7 + c.seed * 9)) + side * f * ts * 0.25;
+      const by = y - f * h * 0.85;
+      ctx.fillStyle = `rgba(${i % 3 ? '42,15,74' : '86,60,130'},${0.8 * fade * (1 - f * 0.5)})`;
+      ctx.beginPath();
+      ctx.arc(bx, by, ts * (0.2 + 0.26 * (1 - f)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    /* 겹겹의 기둥: 가장자리가 불꽃처럼 들쭉날쭉하다 */
+    const jag = (half, amp, color, ph) => {
+      const n = 9;
+      ctx.beginPath();
+      ctx.moveTo(x - half * 1.25, y);
+      for (let j = 1; j <= n; j++) {
+        const f = j / n;
+        ctx.lineTo(x - half * (1 - 0.3 * f) + (j % 2 ? -amp : amp) + Math.sin(t * 26 + j * 1.7 + ph) * amp * 0.5, y - h * f);
+      }
+      ctx.lineTo(x, y - h * 1.08);
+      for (let j = n; j >= 1; j--) {
+        const f = j / n;
+        ctx.lineTo(x + half * (1 - 0.3 * f) + (j % 2 ? amp : -amp) + Math.sin(t * 26 + j * 2.3 + ph) * amp * 0.5, y - h * f);
+      }
+      ctx.lineTo(x + half * 1.25, y);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    jag(w * 1.12, ts * 0.13, `rgba(142,45,226,${0.85 * fade})`, 0);
+    jag(w * 0.84, ts * 0.11, `rgba(224,64,251,${0.95 * fade})`, 1.3);
+    jag(w * 0.52, ts * 0.1, `rgba(248,183,255,${fade})`, 2.1);
+    jag(w * 0.27, ts * 0.085, `rgba(255,255,255,${fade})`, 3.7);
+    /* 밑동: 땅에서 터져 나오는 빛과 사방으로 뻗는 가시 */
+    ctx.fillStyle = `rgba(248,183,255,${0.75 * fade})`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, w * 1.7, w * 0.62, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${fade})`;
+    for (let i = 0; i < 9; i++) {
+      const a = Math.PI + ((i + 0.5) / 9) * Math.PI; /* 위쪽 반원으로 */
+      const len = ts * (0.75 + 0.45 * Math.sin(i * 2.4 + c.seed * 7)) * (0.5 + 0.5 * up);
+      const bx = x + Math.cos(a) * w * 0.9;
+      const by = y + Math.sin(a) * w * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(bx - Math.sin(a) * ts * 0.07, by + Math.cos(a) * ts * 0.03);
+      ctx.lineTo(bx + Math.cos(a) * len, by + Math.sin(a) * len * 0.9);
+      ctx.lineTo(bx + Math.sin(a) * ts * 0.07, by - Math.cos(a) * ts * 0.03);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /* 자월의 효과: 원월의 고리, 날아가는 초승달 검기, 공허 구슬, 월식의 가시 */
+  drawMoon(ctx, t, dt) {
+    const { ts, game } = this;
+    /* 원월: 몸 둘레를 한 바퀴 도는 굵은 고리 */
+    for (const tw of game.towers) {
+      const s = tw.slash;
+      if (!s || tw.def.mech !== 'moon' || s.step !== 2) continue;
+      const k = Math.min(1, s.t / s.dur);
+      const head = s.a + Math.PI + Math.PI * 2 * k * (2 - k);
+      const tail = s.a + Math.PI + Math.PI * 2 * Math.max(0, (k - 0.3) / 0.7) ** 2;
+      const fade = Math.min(1, (1 - k) * 3 + 0.1);
+      const R = tw.lv.ring;
+      ctx.fillStyle = `rgba(42,15,74,${0.24 * fade})`;
+      ctx.beginPath();
+      ctx.arc(this.px(tw.cx, tw.cy), this.py(tw.cx, tw.cy), R * ts, 0, Math.PI * 2);
+      ctx.fill();
+      this.crescent(ctx, tw.cx, tw.cy, tail, head, R, 0.52 * (1 + tw.level * 0.2), fade, tw.id, VIOLET_ARC);
+      this.crescent(ctx, tw.cx, tw.cy, tail + 0.4, head - 0.6, R * 0.58, 0.24 * (1 + tw.level * 0.2), fade * 0.8, tw.id + 2, VIOLET_ARC);
+    }
+
+    /* 날아가는 초승달 검기: 뒤로 잔상과 빛줄기를 끌며 간다 */
+    for (const w of game.waves || []) {
+      if (w.wait > 0) continue;
+      const k = (w.d - 0.25) / (w.max - 0.25);
+      const fade = Math.min(1, k * 7 + 0.25, (1 - k) * 4 + 0.05);
+      const grow = 1 + w.level * 0.2;
+      const R0 = 0.95 * grow;
+      const half = 0.98;
+      const lean = w.flip ? -0.28 : 0.28; /* 번갈아 기울어 날아간다 */
+      const ca = Math.cos(w.a);
+      const sa = Math.sin(w.a);
+      const mid = (d) => [w.x + ca * d - Math.cos(w.a + lean) * R0, w.y + sa * d - Math.sin(w.a + lean) * R0];
+      /* 양 끝에서 뒤로 끌리는 빛줄기 */
+      for (const sgn of [-1, 1]) {
+        const c0 = mid(w.d);
+        const hx = c0[0] + Math.cos(w.a + lean + sgn * half) * R0;
+        const hy = c0[1] + Math.sin(w.a + lean + sgn * half) * R0;
+        const len = Math.min(1.1 * grow, w.d);
+        const x0 = this.px(hx, hy);
+        const y0 = this.py(hx, hy) - ts * 0.2;
+        const x1 = this.px(hx - ca * len, hy - sa * len);
+        const y1 = this.py(hx - ca * len, hy - sa * len) - ts * 0.2;
+        const nx = this.px(hx - sa * 0.07, hy + ca * 0.07) - x0;
+        const ny = this.py(hx - sa * 0.07, hy + ca * 0.07) - ts * 0.2 - y0;
+        for (const [q, color] of [[1, `rgba(142,45,226,${0.6 * fade})`], [0.5, `rgba(248,183,255,${0.85 * fade})`]]) {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(x0 + nx * q, y0 + ny * q);
+          ctx.lineTo(x1, y1);
+          ctx.lineTo(x0 - nx * q, y0 - ny * q);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      for (const [back, a, th] of [[0.75, 0.22, 0.7], [0.38, 0.45, 0.85], [0, 1, 1]]) {
+        if (w.d - back < 0.3) continue;
+        const c0 = mid(w.d - back);
+        this.crescent(ctx, c0[0], c0[1], w.a + lean - half, w.a + lean + half, R0, 0.44 * grow * th, fade * a, w.seed * 9, VIOLET_MOON);
+      }
+      if (!this.reduced && Math.random() < 0.6) {
+        this.spark(w.x + ca * w.d, w.y + sa * w.d, 1, { color: ['#f8b7ff', '#e040fb', '#8e2de2'], speed: 0.9, life: 0.4, size: 0.055, spread: 0.8 });
+      }
+    }
+
+    /* 공허 구슬 */
+    for (const o of game.orbs || []) {
+      const x = this.px(o.x, o.y);
+      const y = this.py(o.x, o.y);
+      if (o.phase === 'fly') {
+        /* 날아가는 구슬: 보랏빛 꼬리를 끈다 */
+        const k = Math.min(1, o.t / o.fly);
+        const yy = y - ts * (0.45 + 0.4 * Math.sin(k * Math.PI));
+        const x0 = this.px(o.x0, o.y0);
+        const y0 = this.py(o.x0, o.y0) - ts * 0.45;
+        const dx = x - x0;
+        const dy = yy - y0;
+        const d = Math.hypot(dx, dy) || 1;
+        const len = Math.min(d, ts * 1.3);
+        const r = ts * 0.2;
+        for (const [q, color] of [[1, 'rgba(142,45,226,.6)'], [0.55, 'rgba(248,183,255,.85)']]) {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(x - (dy / d) * r * q, yy + (dx / d) * r * q);
+          ctx.lineTo(x - (dx / d) * len, yy - (dy / d) * len);
+          ctx.lineTo(x + (dy / d) * r * q, yy - (dx / d) * r * q);
+          ctx.closePath();
+          ctx.fill();
+        }
+        this.voidBall(ctx, x, yy, r, t);
+        continue;
+      }
+      const grow = Math.min(1, o.t / 0.22);
+      const left = MOON_ORB_HOLD - o.t;
+      const shut = left < 0.32 ? 1 - left / 0.32 : 0; /* 닫히는 정도 */
+      const R = o.r * ts * grow;
+      /* 땅에 드리운 그늘 */
+      ctx.fillStyle = `rgba(74,24,140,${0.26 * grow})`;
+      ctx.beginPath();
+      ctx.arc(x, y, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(224,64,251,${0.55 * grow})`;
+      ctx.lineWidth = Math.max(1, ts * 0.04);
+      ctx.stroke();
+      /* 빨려 드는 소용돌이 */
+      for (let i = 0; i < 3; i++) {
+        const a = -t * 5 + (i * Math.PI * 2) / 3 + o.seed * 6;
+        this.crescent(ctx, o.x, o.y, a, a + 2.0, o.r * grow * (0.8 - shut * 0.32), 0.3, 0.92, i + o.seed, VIOLET_ARC);
+      }
+      const cy = y - ts * 0.2;
+      /* 둘레의 엄니: 때가 되면 안으로 닫히며 문다 */
+      const fr = R * (1.04 - shut * 0.55);
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4 + t * 0.9 + o.seed;
+        const bx = x + Math.cos(a) * fr;
+        const by = cy + Math.sin(a) * fr;
+        const tipR = fr - R * 0.36;
+        const hw = R * 0.12;
+        ctx.beginPath();
+        ctx.moveTo(bx - Math.sin(a) * hw, by + Math.cos(a) * hw);
+        ctx.lineTo(x + Math.cos(a + 0.12) * tipR, cy + Math.sin(a + 0.12) * tipR);
+        ctx.lineTo(bx + Math.sin(a) * hw, by - Math.cos(a) * hw);
+        ctx.closePath();
+        ctx.fillStyle = '#2a0f4a';
+        ctx.fill();
+        ctx.strokeStyle = '#e040fb';
+        ctx.lineWidth = Math.max(1, ts * 0.03);
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      }
+      this.voidBall(ctx, x, cy, R * (0.4 + 0.04 * Math.sin(t * 9)) * (1 - shut * 0.25), t);
+      if (!this.reduced) {
+        /* 가장자리에서 한가운데로 빨려 드는 빛 */
+        const a = Math.random() * Math.PI * 2;
+        const life = 0.32;
+        this.particles.push({
+          u: this.u(o.x, o.y) + Math.cos(a) * o.r, v: this.v(o.x, o.y) + Math.sin(a) * o.r,
+          du: (-Math.cos(a) * o.r) / life, dv: (-Math.sin(a) * o.r) / life, g: 0, life, max: life,
+          size: 0.06, color: Math.random() < 0.5 ? '#f8b7ff' : '#e040fb',
+        });
+      }
+    }
+
+    /* 구슬이 닫히며 터지는 순간: 가시가 사방으로 튀고 한가운데가 번쩍인다 */
+    let n = 0;
+    for (const c of this.bites) {
+      c.life -= dt;
+      if (c.life <= 0) continue;
+      this.bites[n++] = c;
+      const k = 1 - c.life / c.max; /* 0 → 1 */
+      const fade = Math.min(1, (1 - k) * 2.2);
+      const x = this.px(c.x, c.y);
+      const y = this.py(c.x, c.y) - ts * 0.2;
+      const R = c.r * ts;
+      if (k < 0.35) {
+        ctx.fillStyle = `rgba(255,255,255,${0.9 * (1 - k / 0.35)})`;
+        ctx.beginPath();
+        ctx.arc(x, y, R * (0.5 + k * 2), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < 12; i++) {
+        const a = (i * Math.PI) / 6 + c.seed * 6;
+        const r0 = R * (0.3 + k * 0.9);
+        const len = R * (0.75 + 0.35 * Math.sin(i * 2.3 + c.seed * 9)) * (1 - k * 0.4);
+        const hw = R * 0.1 * (1 - k * 0.6);
+        for (const [q, color] of [[1, `rgba(142,45,226,${0.9 * fade})`], [0.55, `rgba(248,183,255,${fade})`]]) {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(x + Math.cos(a) * r0 - Math.sin(a) * hw * q, y + Math.sin(a) * r0 + Math.cos(a) * hw * q);
+          ctx.lineTo(x + Math.cos(a) * (r0 + len * (0.6 + 0.4 * q)), y + Math.sin(a) * (r0 + len * (0.6 + 0.4 * q)));
+          ctx.lineTo(x + Math.cos(a) * r0 + Math.sin(a) * hw * q, y + Math.sin(a) * r0 - Math.cos(a) * hw * q);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+    this.bites.length = n;
+
+    /* 월식의 가시: 달 그림자 둘레에서 돋아 안쪽으로 오므라든다 */
+    n = 0;
+    for (const c of this.claws) {
+      c.life -= dt;
+      if (c.life <= 0) continue;
+      this.claws[n++] = c;
+      const g = Math.min(1, (c.max - c.life) / 0.16); /* 돋는 정도 */
+      const fade = Math.min(1, c.life / 0.25);
+      const x = this.px(c.x, c.y);
+      const y = this.py(c.x, c.y);
+      const R = c.r * ts;
+      const list = [];
+      for (let i = 0; i < 9; i++) list.push((i / 9) * Math.PI * 2 + c.seed);
+      list.sort((p, q) => Math.sin(p) - Math.sin(q)); /* 뒤쪽 가시부터 */
+      ctx.globalAlpha = fade;
+      ctx.lineJoin = 'round';
+      for (const a of list) {
+        const bx = x + Math.cos(a) * R;
+        const by = y + Math.sin(a) * R * 0.8;
+        const hgt = ts * (1.25 + 0.3 * Math.sin(a * 3 + c.seed)) * g;
+        const tx = x + Math.cos(a) * R * 0.18;
+        const ty = y + Math.sin(a) * R * 0.14 - hgt;
+        const hw = ts * 0.17;
+        const ox = Math.cos(a) * R * 0.34; /* 바깥으로 배가 부른다 */
+        ctx.beginPath();
+        ctx.moveTo(bx - hw, by);
+        ctx.quadraticCurveTo(bx + ox - hw * 0.4, by - hgt * 0.62, tx, ty);
+        ctx.quadraticCurveTo(bx + ox * 0.4 + hw * 0.5, by - hgt * 0.5, bx + hw, by);
+        ctx.closePath();
+        ctx.fillStyle = Math.sin(a) > 0 ? '#3a1466' : '#2a0f4a';
+        ctx.fill();
+        ctx.strokeStyle = '#e040fb';
+        ctx.lineWidth = Math.max(1, ts * 0.04);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(248,183,255,.9)';
+        ctx.lineWidth = Math.max(1, ts * 0.022);
+        ctx.beginPath();
+        ctx.moveTo(bx - hw * 0.5, by - hgt * 0.1);
+        ctx.quadraticCurveTo(bx + ox - hw * 0.3, by - hgt * 0.6, tx, ty);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    this.claws.length = n;
+  }
+
+  /* 공허 구슬의 몸: 검은 구에 보랏빛 테두리가 돈다 */
+  voidBall(ctx, x, y, r, t) {
+    const ts = this.ts;
+    const g = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 2.1);
+    g.addColorStop(0, 'rgba(224,64,251,.55)');
+    g.addColorStop(1, 'rgba(224,64,251,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 2.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#160a26';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineCap = 'round';
+    for (const [w, color, from, len] of [[0.085, '#8e2de2', 0, Math.PI * 2], [0.055, '#e040fb', t * 7, 4.4], [0.022, '#ffffff', t * 7 + 0.5, 2.2]]) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1, ts * w);
+      ctx.beginPath();
+      ctx.arc(x, y, r, from, from + len);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(248,183,255,.85)';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.35, y - r * 0.38, r * 0.16, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   /* 탑 둘레로 퍼져 나가는 고리: 화염파의 충격파, 종소리, 한파, 지진, 중력, 시간 정지 */

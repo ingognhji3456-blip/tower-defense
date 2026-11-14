@@ -77,7 +77,7 @@ const Sfx = {
   play(name) {
     if (!this.ctx || !this.enabled || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
-    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1, tick: 0.09, buzz: 0.25, chime: 0.07, thunder: 0.08, slash: 0.1, cut: 0.07, whirl: 0.1, cross: 0.1, sword: 0.08 }[name] || 0;
+    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1, tick: 0.09, buzz: 0.25, chime: 0.07, thunder: 0.08, slash: 0.1, cut: 0.07, whirl: 0.1, cross: 0.1, sword: 0.08, reap: 0.08, bite: 0.1, eclipse: 0.1, snare: 0.1 }[name] || 0;
     if (gap && now - (this.last[name] || 0) < gap) return;
     this.last[name] = now;
     const S = this.scale;
@@ -201,6 +201,30 @@ const Sfx = {
         this.tone('sine', 130, 42, 0.3, 0.38);
         this.hiss('lowpass', 1600, 250, 0.3, 0.3);
         break;
+      case 'reap':
+        /* 자월의 낫질: 낮게 깔리는 바람 소리와 맑은 울림 */
+        this.hiss('bandpass', 2400, 500, 0.2, 0.2);
+        this.tone('sine', 880, 440, 0.22, 0.05);
+        this.tone('sine', 220, 110, 0.2, 0.1);
+        break;
+      case 'bite':
+        /* 공허 구슬이 닫히며 물어뜯는다 */
+        this.tone('sine', 300, 40, 0.3, 0.45);
+        this.hiss('lowpass', 2600, 200, 0.22, 0.3);
+        this.tone('sawtooth', 700, 90, 0.16, 0.07);
+        break;
+      case 'snare':
+        /* 월식의 가시가 돋는다 */
+        this.hiss('bandpass', 1200, 3600, 0.18, 0.2);
+        this.tone('sawtooth', 160, 420, 0.2, 0.06);
+        break;
+      case 'eclipse':
+        /* 월식의 빛기둥 */
+        this.tone('sine', 110, 30, 0.7, 0.6);
+        this.hiss('lowpass', 3000, 200, 0.7, 0.4);
+        this.tone('sawtooth', 220, 880, 0.5, 0.07);
+        this.tone('sine', 1320, 660, 0.6, 0.05, 0.05);
+        break;
       case 'bell':
         this.tone('sine', 660, 650, 0.9, 0.22);
         this.tone('sine', 1320, 1310, 0.6, 0.1);
@@ -299,14 +323,19 @@ const Sfx = {
         else if (d.kind === 'trap') this.play('click');
         else if (d.kind === 'lord') this.play('lord');
         else if (d.kind === 'blade') this.play(d.step === 2 ? 'whirl' : 'cut');
+        else if (d.kind === 'moon') this.play(d.step === 2 ? 'whirl' : 'reap');
+        else if (d.kind === 'orb') this.play('warp');
         break;
       case 'nova': this.play({ bell: 'bell', ice: 'freeze', quake: 'boom', void: 'warp', time: 'bell' }[d.skin] || 'bell'); break;
       case 'exec': this.play('slash'); break;
       case 'cast':
         if (d.kind === 'pillar') this.play('slam');
-        else if (d.kind === 'meteor' || d.kind === 'swords') this.play('sky');
+        else if (d.kind === 'meteor' || d.kind === 'swords' || d.kind === 'eclipse') this.play('sky');
         break;
-      case 'burst': this.play({ shock: 'shock', pillar: 'pillar', thunder: 'thunder', cross: 'cross', sword: 'sword' }[d.kind] || 'meteor'); break;
+      case 'burst':
+        if (d.kind === 'vortex') break; /* 구슬이 자리 잡는 소리는 던질 때 낸 것으로 충분하다 */
+        this.play({ shock: 'shock', pillar: 'pillar', thunder: 'thunder', cross: 'cross', sword: 'sword', bite: 'bite', snare: 'snare', eclipse: 'eclipse' }[d.kind] || 'meteor');
+        break;
       case 'sear': this.play('sear'); break;
       case 'explode':
         if (d.kind === 'shell') this.play(d.skin === 'vial' || d.skin === 'tar' ? 'splat' : 'boom');
