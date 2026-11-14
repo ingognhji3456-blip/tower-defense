@@ -83,25 +83,25 @@
   </aside>
 </div>
 
+<!-- 로비 뒤로 흐르는 전투 장면 -->
+<div id="backdrop"><canvas id="hero" aria-hidden="true"></canvas></div>
+
 <!-- 로비 -->
 <div class="screen" id="lobby">
-  <div class="lobby">
-    <canvas class="hero" id="hero" aria-hidden="true"></canvas>
-    <div class="lobby-body">
-      <p class="eyebrow">타워 디펜스</p>
-      <h1>철벽 요새</h1>
-      <p class="lede">괴수 떼가 굴에서 쏟아져 나와 성문으로 몰려옵니다. 탑을 세우고 강화해 열두 전장을 차례로 지켜내세요.</p>
-      <div class="progress" id="lobby-progress"></div>
-      <div class="lobby-actions">
-        <button class="btn primary big" id="btn-play" type="button">스테이지 선택</button>
-        <button class="btn big" id="btn-continue" type="button" hidden></button>
-        <div class="lobby-row">
-          <button class="btn" id="btn-challenge" type="button">도전 모드</button>
-          <button class="btn" id="btn-codex" type="button">도감</button>
-          <button class="btn ghost sound-toggle" id="btn-sound2" type="button" aria-pressed="true">소리 켜짐</button>
-        </div>
-        <p class="lobby-hint" id="lobby-hint"></p>
+  <div class="lobby-ui">
+    <p class="eyebrow">타워 디펜스</p>
+    <h1>철벽 요새</h1>
+    <p class="lede">괴수 떼가 굴에서 쏟아져 나와 성문으로 몰려옵니다. 탑을 세우고 강화해 열두 전장을 차례로 지켜내세요.</p>
+    <div class="progress" id="lobby-progress"></div>
+    <div class="lobby-actions">
+      <button class="btn primary big" id="btn-play" type="button">스테이지 선택</button>
+      <button class="btn big" id="btn-continue" type="button" hidden></button>
+      <div class="lobby-row">
+        <button class="btn" id="btn-challenge" type="button">도전 모드</button>
+        <button class="btn" id="btn-codex" type="button">도감</button>
+        <button class="btn sound-toggle" id="btn-sound2" type="button" aria-pressed="true">소리 켜짐</button>
       </div>
+      <p class="lobby-hint" id="lobby-hint"></p>
     </div>
   </div>
 </div>

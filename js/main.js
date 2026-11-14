@@ -35,7 +35,7 @@
     selected: $('selected'), selName: $('sel-name'), selLevel: $('sel-level'), selStats: $('sel-stats'),
     upgrade: $('btn-upgrade'), sell: $('btn-sell'), target: $('btn-target'), close: $('btn-close'),
 
-    lobby: $('lobby'), hero: $('hero'), lobbyProgress: $('lobby-progress'), play: $('btn-play'), cont: $('btn-continue'),
+    lobby: $('lobby'), backdrop: $('backdrop'), hero: $('hero'), lobbyProgress: $('lobby-progress'), play: $('btn-play'), cont: $('btn-continue'),
     challengeBtn: $('btn-challenge'), codexBtn: $('btn-codex'), lobbyHint: $('lobby-hint'),
     stages: $('stages'), stagesBack: $('btn-stages-back'), stagesTotal: $('stages-total'), stageGrid: $('stage-grid'),
     stageThumb: $('stage-thumb'), stageNo: $('stage-no'), stageName: $('stage-name'), stageMeta: $('stage-meta'),
@@ -67,7 +67,6 @@
     seen: {},
     cards: {},
     pick: 1,
-    heroBack: null,
     settings: Object.assign({ map: MAPS[0].id, diff: 'normal', sound: true, auto: false, speed: 1 }, store.get(KEY.settings, {})),
     best: store.get(KEY.best, {}) || {},
     progress: store.get(KEY.progress, {}) || {},
@@ -232,6 +231,8 @@
   function show(name) {
     app.screen = name;
     el.app.hidden = name !== 'game';
+    el.backdrop.hidden = name === 'game';
+    if (name === 'game') scene.r.release();
     for (const k of Object.keys(SCREENS)) {
       SCREENS[k].hidden = k !== name;
       if (k === name) SCREENS[k].scrollTop = 0;
@@ -273,98 +274,137 @@
     setSoundLabel();
   }
 
-  /* 로비 머리 그림: 다섯 탑이 늘어선 성문 앞으로 괴수들이 몰려오는 모습 */
-  function drawHero(t) {
-    const cv = el.hero;
-    const cssW = cv.clientWidth;
-    const cssH = cv.clientHeight;
-    if (cssW < 40 || cssH < 20) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const W = Math.round(cssW * dpr);
-    const H = Math.round(cssH * dpr);
-    if (cv.width !== W || cv.height !== H) {
-      cv.width = W;
-      cv.height = H;
-      app.heroBack = null;
-    }
-    const WIDE = 9.6; /* 그림의 가로 폭(타일) */
-    const k = W / WIDE;
-    const high = H / k;
-    const road = high - 0.95; /* 길 가운데 높이 */
-    const row = road - 1.02; /* 탑이 선 칸의 중심 높이 */
-    const order = TOWER_ORDER.map((type, i) => ({ type, x: 1.95 + i * 1.42 }));
-    const at = (g, x, y, fn) => {
-      g.save();
-      g.translate(x * k, y * k);
-      g.scale(k, k);
-      fn(g);
-      g.restore();
-    };
+  /* ───── 로비 뒤로 흐르는 전투 장면 ─────
+     진짜 게임을 한 판 돌리면서, 카메라가 길을 따라 미끄러지듯 지나가며 일부만 가까이서 비춘다.
+     몇 초마다 화면이 어두워졌다 밝아지며 다른 곳(가끔은 다른 전장)으로 넘어간다. */
+  const scene = { r: new Renderer(el.hero), game: null, shot: null, count: 0, acc: 0, mapAt: (Math.random() * 7) | 0, snap: true };
+  const SCENE_MAPS = ['gubi', 'twin', 'snake', 'zigzag', 'ssang', 'cross'];
+  const SCENE_WAVES = [10, 18]; /* 시연에 돌려 쓰는 도전 모드 웨이브 범위 */
 
-    if (!app.heroBack) {
-      /* 움직이지 않는 부분은 한 번만 그려 둔다 */
-      const b = document.createElement('canvas');
-      b.width = W;
-      b.height = H;
-      const g = b.getContext('2d');
-      const sky = g.createLinearGradient(0, 0, 0, H * 0.5);
-      sky.addColorStop(0, '#8fd0ff');
-      sky.addColorStop(1, '#e4f5ff');
-      g.fillStyle = sky;
-      g.fillRect(0, 0, W, H);
-      const rand = mulberry32(4242);
-      for (const [f, color, rad] of [[0.34, '#5aa878', 0.95], [0.43, '#3d9146', 0.7], [0.5, '#4fa64f', 0.55]]) {
-        g.fillStyle = color;
-        for (let x = -0.4; x < WIDE + 0.6; x += 0.7) {
-          g.beginPath();
-          g.arc((x + (rand() - 0.5) * 0.3) * k, high * f * k, rad * k * (0.85 + rand() * 0.3), 0, Math.PI * 2);
-          g.fill();
+  function sceneStep(dt) {
+    const g = scene.game;
+    g.lives = 999;
+    if (g.phase === 'build') {
+      if (g.wave >= SCENE_WAVES[1]) g.wave = SCENE_WAVES[0] - 1;
+      g.startWave();
+    } else if (g.phase === 'wave' && g.qi >= g.queue.length) {
+      /* 길이 비지 않도록, 다 나오면 곧바로 다음 웨이브를 잇는다 */
+      g.wave = g.wave >= SCENE_WAVES[1] ? SCENE_WAVES[0] : g.wave + 1;
+      g.queue = scheduleFrom(g.groups(g.wave));
+      g.qi = 0;
+      g.waveTime = -1;
+    }
+    g.update(dt);
+  }
+
+  /* 길을 따라 여러 단계의 탑을 흩어 세운 시연용 전장 */
+  function sceneGame() {
+    const g = new Game({ map: SCENE_MAPS[scene.mapAt++ % SCENE_MAPS.length], diff: 'normal', seed: (Math.random() * 2 ** 31) | 0 });
+    const kinds = ['crossbow', 'cannon', 'tesla', 'crossbow', 'frost', 'rocket', 'cannon', 'tesla'];
+    const tmp = {};
+    let n = 0;
+    for (const p of g.paths) {
+      const count = Math.round(p.length / 3);
+      for (let i = 0; i < count; i++) {
+        p.at(((i + 0.5) / count) * p.length, tmp);
+        let best = null;
+        let bestD = 9;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const x = Math.floor(tmp.x) + dx;
+            const y = Math.floor(tmp.y) + dy;
+            if (!g.canBuild(x, y)) continue;
+            /* 가까운 칸을 고르되, 한 줄로 늘어서지 않게 조금씩 흩는다 */
+            const d = Math.hypot(x + 0.5 - tmp.x, y + 0.5 - tmp.y) + ((x * 7 + y * 13 + i * 5) % 5) * 0.22;
+            if (d < bestD) { bestD = d; best = { x, y }; }
+          }
         }
+        if (!best) continue;
+        const t = g.addTower(kinds[n % kinds.length], best.x, best.y);
+        /* 굴 가까이는 낮은 단계, 성문 쪽으로 갈수록 높은 단계: 괴수가 길 곳곳에서 쓰러진다 */
+        t.level = Math.min(2, Math.floor((i / count) * 3));
+        t.lv = t.def.levels[t.level];
+        t.fresh = false;
+        n++;
       }
-      g.fillStyle = ART.grass[0];
-      g.fillRect(0, high * 0.5 * k, W, H);
-      g.fillStyle = ART.grass[1];
-      for (let x = 0; x < WIDE; x += 2) g.fillRect(x * k, high * 0.5 * k, k, H);
-      g.fillStyle = 'rgba(60,90,40,.35)';
-      g.fillRect(0, (road - 0.5) * k, W, 1.0 * k);
-      g.fillStyle = ART.pathEdge;
-      g.fillRect(0, (road - 0.46) * k, W, 0.92 * k);
-      g.fillStyle = ART.path;
-      g.fillRect(0, (road - 0.39) * k, W, 0.78 * k);
-      for (let i = 0; i < 60; i++) {
-        g.fillStyle = rand() > 0.5 ? 'rgba(150,115,60,.35)' : 'rgba(255,240,200,.45)';
-        g.beginPath();
-        g.ellipse(rand() * W, (road - 0.3 + rand() * 0.6) * k, k * 0.04, k * 0.025, 0, 0, Math.PI * 2);
-        g.fill();
-      }
-      for (const [kind, x] of [['pine', 1.2], ['tree', 9.0]]) at(g, x, row - 0.2, (c) => TERRAIN_ART.deco[kind](c, 3));
-      for (const o of order) at(g, o.x, row, (c) => TOWER_ART[o.type].body(c, 2));
-      app.heroBack = b;
     }
+    g.wave = SCENE_WAVES[0] - 1;
+    g.lives = 999;
+    g.listener = (type, d) => {
+      if (type !== 'wavestart' && type !== 'waveclear') scene.r.onEvent(type, d);
+    };
+    scene.game = g;
+    scene.r.setGame(g);
+    /* 길에 이미 괴수가 가득하도록 미리 얼마간 돌려 둔다 */
+    for (let i = 0; i < 60 * 22; i++) sceneStep(STEP);
+    scene.r.reset();
+  }
 
-    const g = cv.getContext('2d');
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.drawImage(app.heroBack, 0, 0);
-    for (const o of order) {
-      const art = TOWER_ART[o.type];
-      at(g, o.x, row, (c) => {
-        art.top(c, 2, 0.75 + Math.sin(t * 0.7 + o.x) * 0.45, { recoil: 0, flash: 0, t: t + o.x });
-        if (art.front) art.front(c, 2);
-      });
+  function nextShot() {
+    if (!scene.game || scene.count % 3 === 0) sceneGame();
+    scene.count++;
+    const g = scene.game;
+    const p = g.paths[scene.count % g.paths.length];
+    /* 괴수가 있는 곳 가운데 한 군데를 골라 그 가까이에서 시작한다 */
+    const here = g.enemies.filter((e) => e.path === p).map((e) => e.dist).sort((a, b) => a - b);
+    const mid = here.length ? here[Math.floor(here.length * (0.1 + Math.random() * 0.8))] : 2;
+    const span = Math.min(p.length - 1, 4 + Math.random() * 2.5);
+    const forward = Math.random() < 0.65;
+    const d0 = Math.max(0.5, Math.min(p.length - 0.5 - span, mid - (forward ? 1.2 : span - 1.2)));
+    const d1 = d0 + span;
+    scene.shot = { p, a: forward ? d0 : d1, b: forward ? d1 : d0, t: 0, dur: 6.5 + Math.random() * 2.5 };
+    scene.snap = true;
+  }
+
+  function sceneTick(dt) {
+    const vw = el.hero.clientWidth;
+    const vh = el.hero.clientHeight;
+    if (vw < 40 || vh < 40) return;
+    const r = scene.r;
+    /* 화면 높이에 타일 예닐곱 칸이 들어오는 가까운 거리 */
+    const wide = vw > vh && vw > 720;
+    const ts = Math.round(wide ? Math.max(92, vh / 7.2) : Math.min(vh / 6.2, vw / 4.6));
+    r.setView(vw, vh, ts, Math.min(window.devicePixelRatio || 1, 220 / ts));
+    if (!scene.shot) nextShot();
+
+    scene.acc += dt;
+    let steps = 0;
+    while (scene.acc >= STEP && steps++ < 6) {
+      sceneStep(STEP);
+      scene.acc -= STEP;
     }
-    at(g, 0.5, road - 0.05, (c) => TERRAIN_ART.cave(c, t));
-    at(g, WIDE - 0.62, road - 0.1, (c) => TERRAIN_ART.gate(c, t, 0));
-    /* 굴에서 성문으로 가는 행렬 */
-    const march = [['dragon', 2.35], ['raptor', 3.75], ['scorpion', 4.85], ['beetle', 5.85], ['wolf', 6.65], ['hornet', 7.3], ['ant', 7.85], ['ant', 8.3]];
-    march.forEach(([type, x], i) => {
-      const def = ENEMIES[type];
-      const y = road + 0.28 - def.r;
-      const art = ENEMY_ART[type];
-      if (def.tail && art.segment) {
-        for (let n = def.tail.n; n >= 1; n--) at(g, x - n * def.tail.gap, y, (c) => art.segment(c, def.r, n, def.tail.n, t));
-      }
-      at(g, x, y, (c) => art.draw(c, def.r, t + i * 0.37, { seed: i }));
-    });
+    if (scene.acc >= STEP) scene.acc = 0;
+
+    const s = scene.shot;
+    s.t += dt;
+    const k = Math.min(1, s.t / s.dur);
+    const f = s.p.at(s.a + (s.b - s.a) * k, {});
+    /* 넓은 화면의 로비에서는 왼쪽에 글이 있으니 장면의 중심을 오른쪽으로, 좁은 화면에서는 위쪽으로 둔다.
+       지도 밖으로도 풀밭과 숲이 이어지므로 카메라는 가장자리에서 멈추지 않는다. */
+    const fx = wide && app.screen === 'lobby' ? 0.66 : 0.5;
+    const fy = wide ? 0.56 : app.screen === 'lobby' ? 0.34 : 0.5;
+    const cx = f.x * ts - vw * fx;
+    const cy = Math.max(-ts * 0.3, Math.min(r.h + ts * 2 - vh, f.y * ts + r.pad - vh * fy));
+    if (scene.snap) {
+      r.cam.x = cx;
+      r.cam.y = cy;
+      scene.snap = false;
+    } else {
+      const q = 1 - Math.exp(-dt * 2.4);
+      r.cam.x += (cx - r.cam.x) * q;
+      r.cam.y += (cy - r.cam.y) * q;
+    }
+    r.draw({ time: app.time, dt, placing: null, hover: null, selected: null, paused: false });
+
+    /* 장면이 바뀔 때 어두워졌다 밝아진다 */
+    const fade = Math.max(1 - s.t / 0.7, (s.t - (s.dur - 0.7)) / 0.7, 0);
+    if (fade > 0) {
+      const c = r.ctx;
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.fillStyle = 'rgba(27,33,50,' + Math.min(1, fade) + ')';
+      c.fillRect(0, 0, el.hero.width, el.hero.height);
+    }
+    if (s.t >= s.dur) nextShot();
   }
 
   /* ───── 스테이지 선택 ───── */
@@ -1124,7 +1164,7 @@
     app.last = now;
     app.time += dt;
 
-    if (app.screen === 'lobby') drawHero(app.time);
+    if (app.screen !== 'game') sceneTick(dt);
     const g = app.game;
     if (!g || app.screen !== 'game') return;
 

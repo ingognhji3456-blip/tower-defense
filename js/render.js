@@ -37,6 +37,9 @@ class Renderer {
     this.w = 0;
     this.h = 0;
     this.pad = 0;
+    this.cam = null; /* 지도보다 작은 창으로 들여다볼 때의 창 왼쪽 위 좌표(px). 없으면 지도 전체를 그린다. */
+    this.viewW = 0;
+    this.viewH = 0;
     this.dirty = true;
     this.cache = new Map();
     this.actors = [];
@@ -81,6 +84,35 @@ class Renderer {
     this.canvas.style.height = this.h + 'px';
     this.canvas.width = Math.round(this.w * dpr);
     this.canvas.height = Math.round(this.h * dpr);
+    this.cache.clear();
+    this.dirty = true;
+  }
+
+  /* 로비의 전투 장면처럼 지도의 일부만 가까이서 비출 때: 창 크기와 타일 크기를 직접 정한다.
+     그 뒤 this.cam 을 움직이면 창이 지도 위를 옮겨 다닌다. */
+  setView(viewW, viewH, ts, dpr) {
+    if (!this.cam) this.cam = { x: 0, y: 0 };
+    if (viewW === this.viewW && viewH === this.viewH && ts === this.ts && dpr === this.dpr) return;
+    this.ts = ts;
+    this.dpr = dpr;
+    this.transposed = false;
+    this.cols = COLS;
+    this.rows = ROWS;
+    this.pad = Math.round(PAD_TOP * ts * dpr) / dpr;
+    this.w = COLS * ts;
+    this.h = ROWS * ts + this.pad;
+    this.viewW = viewW;
+    this.viewH = viewH;
+    this.canvas.width = Math.round(viewW * dpr);
+    this.canvas.height = Math.round(viewH * dpr);
+    this.cache.clear();
+    this.dirty = true;
+  }
+
+  /* 쓰지 않는 동안 큰 그림들을 내려놓는다. 다시 그릴 때 새로 만든다. */
+  release() {
+    this.bg.width = 1;
+    this.bg.height = 1;
     this.cache.clear();
     this.dirty = true;
   }
@@ -232,6 +264,115 @@ class Renderer {
     this.dirty = false;
   }
 
+  /* 창으로 들여다볼 때의 땅: 보이는 곳만 그때그때 그린다. 지도 밖으로도 풀밭과 숲이 이어진다. */
+  drawGround(ctx, camX, camY) {
+    const { ts, pad, game } = this;
+    const vw = this.viewW;
+    const vh = this.viewH;
+    const hash = (a, b) => {
+      const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    const tx0 = Math.floor(camX / ts) - 1;
+    const tx1 = Math.ceil((camX + vw) / ts) + 1;
+    const ty0 = Math.max(0, Math.floor((camY - pad) / ts) - 1);
+    const ty1 = Math.ceil((camY + vh - pad) / ts) + 1;
+
+    ctx.fillStyle = ART.grass[0];
+    ctx.fillRect(camX - 2, camY - 2, vw + 4, vh + 4);
+    ctx.fillStyle = ART.grass[1];
+    for (let y = ty0; y <= ty1; y++) {
+      for (let x = tx0; x <= tx1; x++) {
+        if ((x + y) & 1) ctx.fillRect(x * ts, y * ts + pad, ts + 0.5, ts + 0.5);
+      }
+    }
+
+    /* 풀포기와 들꽃 */
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1, ts * 0.03);
+    for (let y = ty0; y <= ty1; y++) {
+      for (let x = tx0; x <= tx1; x++) {
+        for (let k = 0; k < 2; k++) {
+          const h = hash(x + k * 17.3, y - k * 9.1);
+          const px = (x + hash(x * 3.1 + k, y)) * ts;
+          const py = (y + hash(x, y * 2.7 + k)) * ts + pad;
+          if (h < 0.72) {
+            ctx.strokeStyle = h < 0.36 ? ART.grassDark : ART.grassLight;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(px - ts * 0.04, py - ts * 0.1);
+            ctx.moveTo(px + ts * 0.05, py);
+            ctx.lineTo(px + ts * 0.08, py - ts * 0.08);
+            ctx.stroke();
+          } else if (h < 0.86) {
+            ctx.fillStyle = h < 0.77 ? '#ffffff' : h < 0.82 ? '#ffe36a' : '#ff9ec4';
+            ctx.beginPath();
+            ctx.arc(px, py, Math.max(1, ts * 0.035), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+    }
+
+    /* 위쪽 숲 가장자리 */
+    if (camY < pad * 1.2) {
+      ctx.fillStyle = '#2f7a3a';
+      ctx.fillRect(camX - 2, camY - 2, vw + 4, pad * 0.3 - camY + 2);
+      for (const [f, color, rad, row] of [[0.3, '#2f7a3a', 0.62, 1], [0.62, '#3d9146', 0.56, 2], [0.9, '#4fa64f', 0.46, 3]]) {
+        ctx.fillStyle = color;
+        const step = ts * 0.62;
+        for (let i = Math.floor(camX / step) - 2; i * step < camX + vw + ts; i++) {
+          const j = (hash(i, row) - 0.5) * 0.2;
+          ctx.beginPath();
+          ctx.arc(i * step + j * ts, pad * f + j * ts * 0.4, ts * rad * (0.85 + hash(i + 0.5, row) * 0.3), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.fillStyle = 'rgba(20,60,30,.22)';
+      ctx.fillRect(camX - 2, pad * 0.92, vw + 4, pad * 0.2);
+    }
+
+    /* 길 */
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (const [color, width] of [['rgba(60,90,40,.35)', 0.98], [ART.pathEdge, 0.9], [ART.path, 0.76]]) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = ts * width;
+      for (const p of game.paths) {
+        ctx.beginPath();
+        p.waypoints.forEach(([x, y], i) => {
+          if (i) ctx.lineTo((x + 0.5) * ts, (y + 0.5) * ts + pad);
+          else ctx.moveTo((x + 0.5) * ts, (y + 0.5) * ts + pad);
+        });
+        ctx.stroke();
+      }
+    }
+    game.samples.forEach((s, i) => {
+      const sx = s.x * ts;
+      const sy = s.y * ts + pad;
+      if (sx < camX - ts || sx > camX + vw + ts || sy < camY - ts || sy > camY + vh + ts) return;
+      for (let k = 0; k < 2; k++) {
+        ctx.fillStyle = hash(i, k + 5) > 0.5 ? 'rgba(150,115,60,.35)' : 'rgba(255,240,200,.4)';
+        ctx.beginPath();
+        ctx.ellipse(sx + (hash(i, k) - 0.5) * 0.6 * ts, sy + (hash(i, k + 2) - 0.5) * 0.6 * ts, ts * (0.02 + hash(i, k + 3) * 0.04), ts * (0.015 + hash(i, k + 4) * 0.02), 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+    /* 지도 바깥의 나무와 바위 */
+    for (let y = ty0; y <= ty1; y++) {
+      for (let x = tx0; x <= tx1; x++) {
+        if (x >= -1 && x <= COLS && y <= ROWS) continue;
+        const h = hash(x * 1.7, y * 2.3);
+        if (h > 0.2) continue;
+        const kind = h < 0.08 ? 'tree' : h < 0.15 ? 'pine' : 'rock';
+        const seed = Math.floor(h * 1000) % 9;
+        const fn = TERRAIN_ART.deco[kind];
+        if (fn) this.blit(ctx, this.sprite('d:' + kind + ':' + seed, BOX_DECO, (g) => fn(g, seed)), (x + 0.5) * ts, (y + 0.5) * ts + pad);
+      }
+    }
+  }
+
   /* ───── 시뮬레이션 사건 → 효과 ───── */
 
   spark(x, y, n, o) {
@@ -325,17 +466,21 @@ class Renderer {
   draw(ui) {
     const { ctx, ts, dpr, game } = this;
     if (!game || !this.w) return;
-    if (this.dirty) this.paintBackground();
+    const cam = this.cam;
+    if (this.dirty && !cam) this.paintBackground();
     const t = ui.time;
     const dt = ui.dt;
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const camX = cam ? Math.round(cam.x * dpr) / dpr : 0;
+    const camY = cam ? Math.round(cam.y * dpr) / dpr : 0;
+    ctx.setTransform(dpr, 0, 0, dpr, -camX * dpr, -camY * dpr);
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt);
       const k = this.shake * ts * 0.25;
       ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k);
     }
-    ctx.drawImage(this.bg, 0, 0, this.w, this.h);
+    if (cam) this.drawGround(ctx, camX, camY);
+    else ctx.drawImage(this.bg, 0, 0, this.w, this.h);
     if (this.alarm > 0) this.alarm = Math.max(0, this.alarm - dt * 1.2);
 
     if (ui.placing) this.drawBuildable(ctx);
@@ -349,9 +494,9 @@ class Renderer {
     this.drawActors(ctx, t, dt);
     this.drawShots(ctx);
     this.drawEffects(ctx, dt);
-    this.drawHealthBars(ctx);
+    if (!cam) this.drawHealthBars(ctx); /* 로비의 전투 장면에서는 체력 막대를 빼 화면을 깔끔하게 둔다 */
     this.drawSelection(ctx, ui);
-    this.drawBanner(ctx, dt, ui);
+    if (!cam) this.drawBanner(ctx, dt, ui);
   }
 
   drawBuildable(ctx) {
@@ -421,7 +566,22 @@ class Renderer {
     }
     list.sort((p, q) => p.k - q.k);
 
+    /* 창 밖에 있는 것은 그리지 않는다 (키 큰 그림이 걸칠 수 있어 여유를 둔다) */
+    const cam = this.cam;
+    const x0 = cam ? cam.x - ts * 2.6 : 0;
+    const x1 = cam ? cam.x + this.viewW + ts * 2.6 : 0;
+    const y0 = cam ? cam.y - ts * 1.5 : 0;
+    const y1 = cam ? cam.y + this.viewH + ts * 2.6 : 0;
+
     for (const it of list) {
+      if (cam) {
+        const o = it.kind === 3 || it.kind === 4 ? it.a : it;
+        const ox = it.kind === 3 ? o.cx : o.x;
+        const oy = it.kind === 3 ? o.cy : o.y;
+        const px = this.px(ox, oy);
+        const py = this.py(ox, oy);
+        if (px < x0 || px > x1 || py < y0 || py > y1) continue;
+      }
       switch (it.kind) {
         case 0: {
           const fn = TERRAIN_ART.deco[it.a];
@@ -444,7 +604,7 @@ class Renderer {
   /* 굴과 성문은 칸보다 넓다. 지도 가장자리에 있으면 잘리지 않게 안쪽으로 조금 들여 그린다. */
   landmark(ctx, x, y, half, fn) {
     const ts = this.ts;
-    const px = Math.max(half * ts, Math.min(this.w - half * ts, this.px(x, y)));
+    const px = this.cam ? this.px(x, y) : Math.max(half * ts, Math.min(this.w - half * ts, this.px(x, y)));
     ctx.save();
     ctx.translate(px, this.py(x, y));
     ctx.scale(ts, ts);

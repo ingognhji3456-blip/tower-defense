@@ -356,7 +356,16 @@ button { font: inherit; color: inherit; }
   .hud { gap: 10px; }
 }
 
-/* ───── 로비와 그 아래 화면들 ───── */
+/* ───── 로비와 그 아래 화면들 ─────
+   뒤에는 전투 장면이 화면 가득 흐르고, 그 위에 어두운 막과 글·단추를 얹는다. */
+
+#backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: var(--night);
+}
+#hero { display: block; width: 100%; height: 100%; }
 
 .screen {
   position: fixed;
@@ -366,40 +375,38 @@ button { font: inherit; color: inherit; }
   place-items: center;
   overflow-y: auto;
   padding: calc(14px + env(safe-area-inset-top, 0px)) var(--gutter-r) calc(14px + env(safe-area-inset-bottom, 0px)) var(--gutter-l);
-  background:
-    radial-gradient(120% 80% at 50% 0%, #34406a 0%, transparent 70%),
-    var(--night);
+  background: rgba(27, 33, 50, 0.8);
   -webkit-user-select: none;
   user-select: none;
 }
 
-.lobby, .board-screen {
-  width: min(100%, 880px);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--night-2);
-  box-shadow: 0 24px 70px rgba(8, 10, 22, 0.55);
+/* 로비: 화면 전체를 쓴다. 넓은 화면에서는 왼쪽에, 좁은 화면에서는 아래쪽에 글과 단추를 둔다. */
+#lobby {
+  place-items: center start;
+  padding-left: max(var(--gutter-l), min(7vw, 140px));
+  background: linear-gradient(90deg, rgba(27, 33, 50, 0.94) 0%, rgba(27, 33, 50, 0.8) 26%, rgba(27, 33, 50, 0.28) 52%, rgba(27, 33, 50, 0) 72%);
 }
-.lobby { width: min(100%, 560px); overflow: hidden; }
-.board-screen { padding: 14px 18px 20px; }
-.board-screen.narrow { width: min(100%, 620px); }
-
-.hero {
-  display: block;
-  width: 100%;
-  aspect-ratio: 2.05 / 1;
-  background: #8ed05c;
-  border-bottom: 3px solid var(--ink);
+.lobby-ui {
+  width: min(100%, clamp(340px, 34vw, 560px));
+  display: grid;
+  gap: 0;
 }
-.lobby-body { padding: 18px 22px 22px; }
-.lobby h1, .screen-head h2, .sheet h1, .sheet h2 {
-  margin: 2px 0 8px;
+.lobby-ui .eyebrow { font-size: clamp(12px, 1vw, 16px); }
+.lobby-ui h1 {
+  margin: 0 0 clamp(8px, 1.4vh, 18px);
   font-family: var(--font-display);
   font-weight: 400;
-  line-height: 1.1;
-  text-wrap: balance;
+  font-size: clamp(54px, 8.2vw, 136px);
+  line-height: 1.02;
+  letter-spacing: 0.01em;
+  text-shadow: 0 0.045em 0 var(--ink), 0 0.1em 0.3em rgba(10, 12, 24, 0.5);
 }
-.lobby h1 { font-size: 46px; letter-spacing: 0.01em; }
+.lobby-ui .lede {
+  margin: 0 0 clamp(14px, 2.2vh, 26px);
+  font-size: clamp(14px, 1.15vw, 19px);
+  color: #dfe5f5;
+  text-shadow: 0 1px 2px rgba(10, 12, 24, 0.7);
+}
 
 .eyebrow {
   margin: 0;
@@ -410,28 +417,72 @@ button { font: inherit; color: inherit; }
 }
 .lede { margin: 0 0 14px; color: var(--paper-dim); max-width: 36em; }
 
-.progress { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.progress { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: clamp(14px, 2.2vh, 24px); }
 .pill {
-  padding: 4px 12px;
+  padding: 5px 14px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--night);
-  font-size: 13px;
+  background: rgba(35, 42, 61, 0.88);
+  font-size: clamp(13px, 1vw, 16px);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.pill.gold { color: var(--gold); border-color: #7a6a3a; }
+.pill.gold { color: var(--gold); border-color: #8a7740; }
 
-.lobby-actions { display: grid; gap: 10px; }
-.lobby-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.lobby-row .btn { min-height: 42px; padding-inline: 6px; }
-.lobby-hint { margin: 0; min-height: 1.45em; font-size: 12px; color: var(--paper-dim); }
+.lobby-actions { display: grid; gap: clamp(8px, 1.2vh, 12px); }
+#lobby .lobby-actions .btn {
+  min-height: clamp(46px, 6vh, 66px);
+  font-size: clamp(15px, 1.25vw, 22px);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(10, 12, 24, 0.35);
+}
+#lobby .lobby-actions .btn:not(.primary) { background: rgba(59, 69, 103, 0.92); }
+.lobby-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(8px, 0.8vw, 12px); }
+#lobby .lobby-row .btn { min-height: clamp(42px, 5vh, 56px); padding-inline: 6px; font-size: clamp(13px, 1vw, 18px); }
+.lobby-hint { margin: 0; min-height: 1.45em; font-size: clamp(12px, 0.9vw, 14px); color: #c9d1e6; text-shadow: 0 1px 2px rgba(10, 12, 24, 0.7); }
 .btn.big { min-height: 48px; font-size: 15px; }
 .btn.wide { width: 100%; }
+
+@media (max-aspect-ratio: 1/1), (max-width: 720px) {
+  #lobby {
+    place-items: end center;
+    padding-left: var(--gutter-l);
+    background: linear-gradient(0deg, rgba(27, 33, 50, 0.97) 0%, rgba(27, 33, 50, 0.9) 34%, rgba(27, 33, 50, 0.45) 58%, rgba(27, 33, 50, 0) 78%);
+  }
+  .lobby-ui { width: min(100%, 520px); padding-bottom: 6px; }
+  .lobby-ui h1 { font-size: clamp(50px, 15vw, 84px); }
+}
+
+.board-screen {
+  width: min(100%, 1180px);
+  padding: clamp(14px, 1.6vw, 26px) clamp(18px, 2vw, 30px) clamp(20px, 2vw, 30px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--night-2);
+  box-shadow: 0 24px 70px rgba(8, 10, 22, 0.55);
+}
+.board-screen.narrow { width: min(100%, 760px); }
 
 .screen-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .screen-head h2 { flex: 1; margin: 0; font-size: 26px; }
 .stars-total { font-weight: 700; color: var(--gold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+@media (min-width: 1200px) {
+  .board-screen { font-size: 16px; }
+  .screen-head h2 { font-size: 34px; }
+  .stars-total { font-size: 20px; }
+  .stage-tile .num { font-size: 42px; }
+  .tile-stars { font-size: 18px; }
+  .stage-tile.locked .tile-stars { font-size: 13px; }
+  .stage-info h3 { font-size: 36px; }
+  .stage-meta, .stage-note { font-size: 15px; }
+  .chips.wrap .chip canvas { width: 46px; height: 46px; }
+  .map-btn strong { font-size: 14px; }
+  .map-btn span { font-size: 12px; }
+  .seg button { font-size: 15px; padding-block: 11px; }
+  .codex-card h4 { font-size: 19px; }
+  .codex-card p { font-size: 14px; }
+}
 
 /* 스테이지 선택 */
 .stage-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
@@ -597,13 +648,6 @@ button { font: inherit; color: inherit; }
 .tally div { padding: 10px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--night); }
 .tally dt { font-size: 12px; color: var(--paper-dim); }
 .tally dd { margin: 0; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-
-@media (max-height: 620px) {
-  .lobby h1 { font-size: 36px; }
-  .hero { aspect-ratio: 2.6 / 1; }
-  .lobby-body { padding: 12px 18px 16px; }
-  .lede { margin-bottom: 10px; }
-}
 
 @media (prefers-reduced-motion: no-preference) {
   .overlay { animation: fade 0.22s ease-out; }
