@@ -144,7 +144,7 @@ class Game {
     this.towers = [];
     this.enemies = [];
     this.shots = [];
-    this.strikes = []; // 군주의 불기둥·유성: 예고된 자리에 잠시 뒤 터진다
+    this.strikes = []; // 화염파의 불기둥·유성: 예고된 자리에 잠시 뒤 터진다
     this.queue = [];
     this.qi = 0;
     this.waveTime = 0;
@@ -248,17 +248,17 @@ class Game {
       burst: 0,
       burstT: 0,
       burstList: [],
-      cast: 0, // 군주: 몸짓(소환·불기둥·유성우)이 남은 시간
+      cast: 0, // 화염파: 몸짓(소환·불기둥·유성우)이 남은 시간
       castDur: 1,
-      gest: null, // 군주: 지금 하는 몸짓의 종류
-      idle: true, // 군주: 사거리 안에 적이 없다
+      gest: null, // 화염파: 지금 하는 몸짓의 종류
+      idle: true, // 화염파: 사거리 안에 적이 없다
       mid: 0,
-      pillarT: 3.2, // 군주: 다음 불기둥까지
-      meteorT: 6.5, // 군주: 다음 유성우까지
-      sweep: null, // 군주: 지금 휘두르고 있는 광선 { a0, a1, a, t, dur, hit }
+      pillarT: 3.2, // 화염파: 다음 불기둥까지
+      meteorT: 6.5, // 화염파: 다음 유성우까지
+      sweep: null, // 화염파: 지금 휘두르고 있는 광선 { a0, a1, a, t, dur, hit }
       flip: false,
-      shockT: 1.5, // 군주: 다음 화염파까지
-      wave: null, // 군주: 퍼져 나가는 화염파 { t, dur, r, hit }
+      shockT: 1.5, // 화염파: 다음 충격파까지
+      wave: null, // 화염파: 퍼져 나가는 충격파 { t, dur, r, hit }
       wavePending: false,
       kills: 0,
       dealt: 0,
@@ -392,7 +392,7 @@ class Game {
       age: 0,
       hitT: 0,
       poison: 0,
-      kb: 0, // 화염파에 밀려날 남은 거리
+      kb: 0, // 충격파에 밀려날 남은 거리
       poisonT: 0,
       poisonSrc: null,
     };
@@ -469,7 +469,7 @@ class Game {
         if (e.poisonT <= 0) e.poison = 0;
       }
       if (e.kb > 0) {
-        /* 화염파에 밀려나는 동안은 나아가지 못한다 */
+        /* 충격파에 밀려나는 동안은 나아가지 못한다 */
         const step = Math.min(e.kb, dt * 6);
         e.kb -= step;
         e.dist = Math.max(0, e.dist - step);
@@ -743,8 +743,8 @@ class Game {
     if (!b.alive) t.beam = null;
   }
 
-  /* 군주: 두 손에서 뿜는 굵은 광선을 부채꼴로 휘둘러 지나간 자리의 적을 모두 태운다.
-     적이 가까이 오면 발을 굴러 화염파로 태우며 밀어내고,
+  /* 화염파: 두 손에서 뿜는 굵은 광선을 부채꼴로 휘둘러 지나간 자리의 적을 모두 태운다.
+     적이 가까이 오면 발을 굴러 충격파로 태우며 밀어내고,
      2단부터는 불기둥을 솟구치게 하고, 3단에서는 유성우를 떨군다. */
   runLord(t, dt) {
     const lv = t.lv;
@@ -753,7 +753,7 @@ class Game {
     if (t.shockT > 0) t.shockT -= dt;
     if (t.pillarT > 0) t.pillarT -= dt;
     if (t.meteorT > 0) t.meteorT -= dt;
-    /* 화염파: 움츠렸다가 발을 구르는 순간 퍼져 나가기 시작한다 */
+    /* 충격파: 움츠렸다가 발을 구르는 순간 퍼져 나가기 시작한다 */
     if (t.wavePending && t.cast <= t.castDur * LORD_SHOCK_AT) {
       t.wavePending = false;
       t.wave = { t: 0, dur: LORD_SHOCK_TIME, r: lv.shockR, hit: [] };
@@ -915,7 +915,7 @@ class Game {
     if (k >= 1) t.sweep = null;
   }
 
-  /* 화염파: 군주에게서 퍼져 나가는 불 고리가 닿는 적을 태우고 길 뒤쪽으로 밀어낸다 */
+  /* 충격파: 화염파에게서 퍼져 나가는 불 고리가 닿는 적을 태우고 길 뒤쪽으로 밀어낸다 */
   shockLord(t, dt) {
     const w = t.wave;
     const lv = t.lv;

@@ -214,7 +214,7 @@
       case 'lord':
         return [
           ['휩쓸기', (l) => f1(l.dmg)],
-          ['화염파', (l) => f1(l.shock)],
+          ['충격파', (l) => f1(l.shock)],
           ['불기둥', (l) => (l.pillar ? (l.pillars > 1 ? l.pillars + '×' : '') + f1(l.pillar) : '—')],
           ['유성우', (l) => (l.meteor ? l.meteors + '×' + f1(l.meteor) : '—')],
           ['거리', (l) => f1(l.range)],

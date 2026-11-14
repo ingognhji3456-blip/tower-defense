@@ -242,7 +242,7 @@ if (process.argv.includes('--tune')) {
     '새 탑(독·저격·화염·광선·서리)': ['poison', 'sniper', 'flame', 'laser', 'frost'],
     '희귀 위주(석궁·독·저격·서리·대포)': ['crossbow', 'poison', 'sniper', 'frost', 'cannon'],
     '기준 +3등급': STANDARD,
-    '군주 포함(석궁·대포·서리·번개·군주)': ['crossbow', 'cannon', 'frost', 'tesla', 'lord'],
+    '화염파 포함(석궁·대포·서리·번개·화염파)': ['crossbow', 'cannon', 'frost', 'tesla', 'lord'],
   };
   for (const [name, loadout] of Object.entries(SETS)) {
     const ranks = name.includes('+3') ? Object.fromEntries(loadout.map((t) => [t, 3])) : {};

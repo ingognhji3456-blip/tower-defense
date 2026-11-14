@@ -61,8 +61,8 @@ class Renderer {
     this.shake = 0;
     this.alarm = 0;
     this.aims = new Map();
-    this.poses = new Map(); // 군주의 몸짓을 프레임 사이에 부드럽게 잇기 위한 값
-    this.columns = []; // 군주의 불기둥
+    this.poses = new Map(); // 화염파의 몸짓을 프레임 사이에 부드럽게 잇기 위한 값
+    this.columns = []; // 화염파의 불기둥
   }
 
   setGame(game) {
@@ -381,7 +381,7 @@ class Renderer {
         }
         break;
       case 'sear':
-        /* 군주의 광선에 그을린 적 */
+        /* 화염파의 광선에 그을린 적 */
         this.rings.push({ x: d.x, y: d.y, r: 0.45 + d.r, life: 0.26, max: 0.26, color: '255,150,40' });
         this.spark(d.x, d.y, 6, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 2.2, life: 0.36, size: 0.07, lift: -0.9 });
         break;
@@ -441,7 +441,7 @@ class Renderer {
         break;
       case 'build':
         if (d.tower.type === 'lord') {
-          /* 군주의 등장: 불빛 고리가 퍼지고 불티가 솟는다 */
+          /* 화염파의 등장: 불빛 고리가 퍼지고 불티가 솟는다 */
           this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 1.8, life: 0.7, max: 0.7, color: '255,150,40' });
           this.spark(d.tower.cx, d.tower.cy - 0.3, 26, { color: ['#ffd88f', '#ff9226', '#ffffff', '#2f2b3d'], speed: 2.6, life: 0.8, size: 0.07, lift: -1.2, spread: 0.4 });
           if (!this.reduced && !this.clean) this.shake = 0.2;
@@ -660,7 +660,7 @@ class Renderer {
     if (art.front) this.blit(ctx, this.sprite('f:' + tw.type + ':' + tw.level, BOX_TOWER, (g) => art.front(g, tw.level)), x, y);
   }
 
-  /* 군주의 몸짓을 정한다. 자세가 뚝뚝 끊기지 않도록 겨눔·발사 정도를 프레임마다 조금씩 따라가게 하고,
+  /* 화염파의 몸짓을 정한다. 자세가 뚝뚝 끊기지 않도록 겨눔·발사 정도를 프레임마다 조금씩 따라가게 하고,
      몸이 보는 쪽은 겨눈 적(휘두르는 동안은 부채꼴 한가운데) 쪽으로 고정한다. 돌려주는 값은 팔이 가리킬 각도. */
   lordPose(tw, o, have, want, dt) {
     let st = this.poses.get(tw.id);
@@ -780,7 +780,7 @@ class Renderer {
     }
   }
 
-  /* 군주의 불기둥·유성이 터질 자리를 땅에 미리 비춘다 */
+  /* 화염파의 불기둥·유성이 터질 자리를 땅에 미리 비춘다 */
   drawStrikeMarks(ctx, t) {
     const { ts, game } = this;
     if (!game.strikes || !game.strikes.length) return;
@@ -883,7 +883,7 @@ class Renderer {
     this.columns.length = n;
   }
 
-  /* 군주의 화염파: 발밑에서 퍼져 나가는 불 고리 */
+  /* 화염파의 충격파: 발밑에서 퍼져 나가는 불 고리 */
   drawShockwaves(ctx, t) {
     const { ts, game } = this;
     for (const tw of game.towers) {
@@ -927,7 +927,7 @@ class Renderer {
     }
   }
 
-  /* 군주의 휩쓸기 광선: 두 손에서 사거리 끝까지 뻗은 굵은 불줄기가 부채꼴로 지나간다 */
+  /* 화염파의 휩쓸기 광선: 두 손에서 사거리 끝까지 뻗은 굵은 불줄기가 부채꼴로 지나간다 */
   drawSweeps(ctx, t) {
     const { ts, game } = this;
     const art = TOWER_ART.lord;

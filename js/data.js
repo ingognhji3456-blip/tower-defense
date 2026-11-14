@@ -129,13 +129,13 @@ const TOWERS = {
       { cost: 320, dps: 120, range: 3.6, h: 1.3 },
     ],
   },
-  /* 영웅: 건물이 아니라 전장에 직접 서는 군주. 한 판에 하나만 세울 수 있다. 강화할수록 공격이 는다.
+  /* 영웅: 건물이 아니라 전장에 직접 서는 화염파. 한 판에 하나만 세울 수 있다. 강화할수록 공격이 는다.
      dmg 는 광선이 한 번 휩쓸 때 적 하나가 받는 피해, arc 는 휩쓰는 부채꼴의 각도(라디안), h 는 두 손의 높이,
-     shock·shockR·push 는 화염파의 피해·반지름·밀어내는 거리(칸),
+     shock·shockR·push 는 충격파의 피해·반지름·밀어내는 거리(칸),
      pillar(·pillars) 는 2단부터 쓰는 불기둥의 피해(와 개수), meteor·meteors 는 3단의 유성 하나의 피해와 개수. */
   lord: {
-    name: '심연의 군주', rarity: 'mythic', unique: true,
-    blurb: '굵은 불꽃 광선을 부채꼴로 휘둘러 범위 안의 적을 한꺼번에 태우고, 적이 다가오면 화염파로 태우며 밀어냅니다. 2단에서 불기둥, 3단에서 유성우를 익힙니다. 한 판에 하나만 세울 수 있습니다.',
+    name: '화염파', rarity: 'mythic', unique: true,
+    blurb: '굵은 불꽃 광선을 부채꼴로 휘둘러 범위 안의 적을 한꺼번에 태우고, 적이 다가오면 충격파로 태우며 밀어냅니다. 2단에서 불기둥, 3단에서 유성우를 익힙니다. 한 판에 하나만 세울 수 있습니다.',
     kind: 'magic',
     levels: [
       { cost: 520, dmg: 50, cd: 2.2, range: 3.4, arc: 1.3, shock: 30, shockR: 1.9, push: 0.9, h: 0.42 },
@@ -147,17 +147,17 @@ const TOWERS = {
 
 const FLAME_TICK = 0.15; // 화염탑이 피해를 주는 간격
 const POISON_TIME = 4; // 독이 이어지는 시간
-const LORD_SWEEP = 0.75; // 군주: 광선을 한 번 휘두르는 데 걸리는 시간(초)
-const LORD_BEAM = 0.28; // 군주: 광선의 반 굵기(칸)
+const LORD_SWEEP = 0.75; // 화염파: 광선을 한 번 휘두르는 데 걸리는 시간(초)
+const LORD_BEAM = 0.28; // 화염파: 광선의 반 굵기(칸)
 const LORD_PILLAR_EVERY = 5.5; // 불기둥을 쓰는 간격(초)
 const LORD_PILLAR_DELAY = 0.45; // 불기둥이 예고된 뒤 솟기까지(초)
 const LORD_PILLAR_R = 0.95; // 불기둥의 반지름(칸)
 const LORD_METEOR_EVERY = 11; // 유성우를 쓰는 간격(초)
 const LORD_METEOR_DELAY = 0.6; // 첫 유성이 떨어지기까지(초)
 const LORD_METEOR_R = 0.85; // 유성 하나가 터지는 반지름(칸)
-const LORD_SHOCK_EVERY = 6; // 화염파를 쓰는 간격(초)
-const LORD_SHOCK_TIME = 0.4; // 화염파가 끝까지 퍼지는 시간(초)
-const LORD_SHOCK_AT = 0.7; // 몸짓이 이만큼 남았을 때(전체의 비율) 발을 굴러 화염파가 나간다
+const LORD_SHOCK_EVERY = 6; // 충격파를 쓰는 간격(초)
+const LORD_SHOCK_TIME = 0.4; // 충격파가 끝까지 퍼지는 시간(초)
+const LORD_SHOCK_AT = 0.7; // 몸짓이 이만큼 남았을 때(전체의 비율) 발을 굴러 충격파가 나간다
 const BEAM_RAMP = 0.8; // 광선탑: 같은 적을 비춘 시간 1초마다 피해가 이만큼(배) 더 붙는다. 최대 3배.
 
 /* ───────── 뽑기와 등급 ─────────
