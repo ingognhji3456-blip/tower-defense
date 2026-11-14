@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>도깨비 고개</title>
+<meta name="description" content="달 밝은 밤, 고개를 넘어오는 도깨비 떼로부터 마을을 지키는 타워 디펜스 게임.">
+<meta name="theme-color" content="#131a30">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=Yeon+Sung&amp;display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <header class="hud">
+    <div class="stat lives" id="stat-lives" title="목숨">
+      <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M10 17.5S3 13 3 8.2A3.8 3.8 0 0 1 10 6a3.8 3.8 0 0 1 7 2.2c0 4.8-7 9.3-7 9.3z"/></svg>
+      <b id="hud-lives">20</b>
+    </div>
+    <div class="stat coin" title="엽전">
+      <svg class="ico" viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M10 1.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM7.2 7.2h5.6v5.6H7.2z"/></svg>
+      <b id="hud-gold">220</b><span class="sub">냥</span>
+    </div>
+    <div class="stat">
+      <span class="sub">웨이브</span><b id="hud-wave">0</b><span class="sub" id="hud-of">/30</span>
+    </div>
+    <div class="hud-btns">
+      <button class="icon-btn" id="btn-speed" type="button" aria-label="게임 속도" title="게임 속도">1×</button>
+      <button class="icon-btn" id="btn-pause" type="button" aria-label="일시정지" aria-pressed="false" title="일시정지 (P)">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M5 3.5h3.5v13H5zM11.5 3.5H15v13h-3.5z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-sound" type="button" aria-label="소리" aria-pressed="true" title="소리">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path fill="currentColor" d="M3 7.5h3L10.5 4v12L6 12.5H3z"/>
+          <path class="on-mark" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M13 7.2a4 4 0 0 1 0 5.6M15.2 5a7 7 0 0 1 0 10"/>
+          <path class="off-mark" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M13 7.5l4.5 5M17.5 7.5l-4.5 5"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="btn-menu" type="button" aria-label="메뉴" title="메뉴">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6h12M4 10h12M4 14h12"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <canvas id="board" aria-label="고갯길. 빈 땅을 눌러 방어 시설을 세웁니다."></canvas>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </main>
+
+  <aside class="tray" id="tray">
+    <section class="panel" id="wavebox" aria-label="웨이브">
+      <div class="wave-info">
+        <span class="label" id="wave-label">다음</span>
+        <div class="chips" id="wave-chips"></div>
+        <span class="remain" id="wave-remain" hidden></span>
+      </div>
+      <div class="wave-go">
+        <label class="auto" title="웨이브를 막아내면 다음 웨이브를 곧바로 부릅니다"><input type="checkbox" id="opt-auto"><span>자동</span></label>
+        <button class="btn primary" id="btn-start" type="button">시작</button>
+      </div>
+    </section>
+
+    <section class="panel" id="placing" hidden>
+      <div class="placing-text">
+        <div class="row"><strong id="plc-name"></strong><span class="stats" id="plc-stats"></span></div>
+        <p class="blurb" id="plc-blurb"></p>
+      </div>
+      <button class="btn ghost" id="btn-cancel" type="button">취소</button>
+    </section>
+
+    <section id="shop" aria-label="방어 시설"></section>
+
+    <section class="panel" id="selected" hidden>
+      <div class="row"><strong id="sel-name"></strong><span class="lvl" id="sel-level"></span><span class="stats" id="sel-stats"></span></div>
+      <div class="actions-row">
+        <button class="btn up" id="btn-upgrade" type="button"></button>
+        <button class="btn" id="btn-sell" type="button"></button>
+        <button class="btn" id="btn-target" type="button" title="누구를 먼저 노릴지 바꿉니다"></button>
+        <button class="btn ghost" id="btn-close" type="button">닫기</button>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="sheet">
+    <p class="eyebrow">타워 디펜스</p>
+    <h1>도깨비 고개</h1>
+    <p class="lede">달 밝은 밤, 도깨비 떼가 고개를 넘어옵니다. 길가에 궁수대와 화포, 장승을 세워 서른 번의 습격으로부터 마을 어귀를 지키세요.</p>
+    <div class="field">
+      <span class="label" id="lbl-map">고개 고르기</span>
+      <div class="maps" id="maps" role="radiogroup" aria-labelledby="lbl-map"></div>
+      <p class="map-note" id="map-note"></p>
+    </div>
+    <div class="field">
+      <span class="label" id="lbl-diff">난이도</span>
+      <div class="seg" id="diffs" role="radiogroup" aria-labelledby="lbl-diff"></div>
+    </div>
+    <div class="menu-foot">
+      <button class="btn ghost" id="btn-sound2" type="button" aria-pressed="true">소리 켜짐</button>
+      <div class="actions">
+        <button class="btn" id="btn-resume" type="button" hidden>돌아가기</button>
+        <button class="btn" id="btn-continue" type="button" hidden>이어하기</button>
+        <button class="btn primary" id="btn-new" type="button">새 게임</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="result" hidden>
+  <div class="sheet">
+    <p class="eyebrow" id="result-eyebrow"></p>
+    <h2 id="result-title"></h2>
+    <p class="lede" id="result-text"></p>
+    <dl class="tally">
+      <div><dt>막아낸 웨이브</dt><dd id="tally-wave">0</dd></div>
+      <div><dt>물리친 적</dt><dd id="tally-kills">0</dd></div>
+      <div><dt>남은 목숨</dt><dd id="tally-lives">0</dd></div>
+    </dl>
+    <div class="menu-foot">
+      <div class="actions">
+        <button class="btn" id="btn-home" type="button">처음으로</button>
+        <button class="btn" id="btn-endless" type="button" hidden>무한 모드로 계속</button>
+        <button class="btn primary" id="btn-retry" type="button">다시 하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/render.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
