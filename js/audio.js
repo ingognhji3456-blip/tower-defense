@@ -77,7 +77,7 @@ const Sfx = {
   play(name) {
     if (!this.ctx || !this.enabled || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
-    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1, tick: 0.09, buzz: 0.25, chime: 0.07, thunder: 0.08, slash: 0.1 }[name] || 0;
+    const gap = { arrow: 0.06, kill: 0.05, hit: 0.05, rocket: 0.05, boom: 0.08, zap: 0.08, flame: 0.22, beam: 0.28, coin: 0.12, splat: 0.08, snipe: 0.08, sear: 0.07, lord: 0.1, meteor: 0.09, pillar: 0.1, tick: 0.09, buzz: 0.25, chime: 0.07, thunder: 0.08, slash: 0.1, cut: 0.07, whirl: 0.1, cross: 0.1, sword: 0.08 }[name] || 0;
     if (gap && now - (this.last[name] || 0) < gap) return;
     this.last[name] = now;
     const S = this.scale;
@@ -177,6 +177,30 @@ const Sfx = {
         this.hiss('bandpass', 3200, 700, 0.16, 0.22);
         this.tone('sine', 300, 90, 0.2, 0.12);
         break;
+      case 'cut':
+        /* 홍련의 가로 베기: 짧고 날카로운 바람 소리에 불길이 스친다 */
+        this.hiss('bandpass', 3600, 900, 0.13, 0.2);
+        this.hiss('bandpass', 700, 1800, 0.16, 0.08);
+        break;
+      case 'whirl':
+        /* 회전 베기: 한 바퀴 도는 긴 바람 소리 */
+        this.hiss('bandpass', 900, 3400, 0.2, 0.2);
+        this.hiss('bandpass', 3400, 600, 0.26, 0.22, 0.16);
+        this.tone('sine', 190, 70, 0.36, 0.22);
+        break;
+      case 'cross':
+        /* 십자 베기: 연달아 두 번 긋고 터진다 */
+        this.hiss('bandpass', 4200, 1200, 0.1, 0.26);
+        this.hiss('bandpass', 4200, 1200, 0.1, 0.26, 0.09);
+        this.tone('sine', 150, 45, 0.34, 0.4, 0.1);
+        this.tone('sawtooth', 520, 160, 0.2, 0.06, 0.1);
+        break;
+      case 'sword':
+        /* 화염검이 땅에 꽂힌다: 쇳소리와 불길 */
+        this.tone('triangle', 1900, 1500, 0.1, 0.09);
+        this.tone('sine', 130, 42, 0.3, 0.38);
+        this.hiss('lowpass', 1600, 250, 0.3, 0.3);
+        break;
       case 'bell':
         this.tone('sine', 660, 650, 0.9, 0.22);
         this.tone('sine', 1320, 1310, 0.6, 0.1);
@@ -274,14 +298,15 @@ const Sfx = {
         else if (d.kind === 'beam') this.play('beam');
         else if (d.kind === 'trap') this.play('click');
         else if (d.kind === 'lord') this.play('lord');
+        else if (d.kind === 'blade') this.play(d.step === 2 ? 'whirl' : 'cut');
         break;
       case 'nova': this.play({ bell: 'bell', ice: 'freeze', quake: 'boom', void: 'warp', time: 'bell' }[d.skin] || 'bell'); break;
       case 'exec': this.play('slash'); break;
       case 'cast':
         if (d.kind === 'pillar') this.play('slam');
-        else if (d.kind === 'meteor') this.play('sky');
+        else if (d.kind === 'meteor' || d.kind === 'swords') this.play('sky');
         break;
-      case 'burst': this.play({ shock: 'shock', pillar: 'pillar', thunder: 'thunder' }[d.kind] || 'meteor'); break;
+      case 'burst': this.play({ shock: 'shock', pillar: 'pillar', thunder: 'thunder', cross: 'cross', sword: 'sword' }[d.kind] || 'meteor'); break;
       case 'sear': this.play('sear'); break;
       case 'explode':
         if (d.kind === 'shell') this.play(d.skin === 'vial' || d.skin === 'tar' ? 'splat' : 'boom');

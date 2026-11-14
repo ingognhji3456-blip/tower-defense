@@ -64,6 +64,9 @@ function power(game, type, level, mix) {
     case 'lord':
       return (lv.dmg / lv.cd) * 3 + (lv.shock * 2.5) / LORD_SHOCK_EVERY
         + ((lv.pillar || 0) * (lv.pillars || 1) * 2.5) / LORD_PILLAR_EVERY + ((lv.meteor || 0) * (lv.meteors || 0) * 2) / LORD_METEOR_EVERY;
+    case 'blade':
+      return ((lv.dmg * (2 + lv.finish)) / (lv.cd * (2 + BLADE_REST))) * 2 + lv.dot * 1.2
+        + ((lv.cross || 0) * 1.3) / BLADE_CROSS_EVERY + ((lv.sword || 0) * (lv.swords || 0) * 1.5) / BLADE_SWORD_EVERY;
     default: return 0;
   }
 }
@@ -247,6 +250,7 @@ if (process.argv.includes('--tune')) {
     '희귀 위주(석궁·독·저격·서리·대포)': ['crossbow', 'poison', 'sniper', 'frost', 'cannon'],
     '기준 +3등급': STANDARD,
     '화염파 포함(석궁·대포·서리·번개·화염파)': ['crossbow', 'cannon', 'frost', 'tesla', 'lord'],
+    '홍련 포함(석궁·대포·서리·번개·홍련)': ['crossbow', 'cannon', 'frost', 'tesla', 'blade'],
   };
   for (const [name, loadout] of Object.entries(SETS)) {
     const ranks = name.includes('+3') ? Object.fromEntries(loadout.map((t) => [t, 3])) : {};

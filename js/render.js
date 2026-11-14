@@ -90,6 +90,7 @@ class Renderer {
     this.aims = new Map();
     this.poses = new Map(); // 화염파의 몸짓을 프레임 사이에 부드럽게 잇기 위한 값
     this.columns = []; // 화염파의 불기둥
+    this.cuts = []; // 홍련의 십자 베기 자국
   }
 
   setGame(game) {
@@ -408,6 +409,19 @@ class Renderer {
         else if (d.kind === 'lord') {
           const tw = d.tower;
           this.rings.push({ x: tw.cx, y: tw.cy + 0.2, r: 0.9, life: 0.3, max: 0.3, color: '255,150,40' });
+        } else if (d.kind === 'blade') {
+          /* 칼을 긋는 순간 칼끝 쪽에서 불티가 튄다. 회전 베기는 둘레로 고리가 퍼진다 */
+          const tw = d.tower;
+          const spin = d.step === 2;
+          const a = tw.slash ? (tw.slash.a0 + tw.slash.a1) / 2 : tw.mid;
+          const r = tw.range * 0.8;
+          if (spin) {
+            this.rings.push({ x: tw.cx, y: tw.cy, r: tw.range * 1.05, life: 0.34, max: 0.34, color: '255,150,40' });
+            this.spark(tw.cx, tw.cy, 18, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: tw.range * 2.4, life: 0.36, size: 0.07, lift: -0.3 });
+            if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.07);
+          } else {
+            this.spark(tw.cx + Math.cos(a) * r, tw.cy + Math.sin(a) * r, 7, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 2.2, life: 0.3, size: 0.06, lift: -0.4, spread: tw.range * 0.6 });
+          }
         }
         break;
       case 'nova': {
@@ -474,6 +488,17 @@ class Renderer {
           this.columns.push({ kind: 'thunder', x: d.x, y: d.y, r: d.r, life: 0.24, max: 0.24, seed: Math.random() });
           this.rings.push({ x: d.x, y: d.y, r: d.r * 1.2, life: 0.3, max: 0.3, color: '203,166,255' });
           this.spark(d.x, d.y, 8, { color: ['#ffffff', '#cba6ff', '#9cddf8'], speed: 2.6, life: 0.3, size: 0.05 });
+        } else if (d.kind === 'cross') {
+          /* 십자 베기: 엇갈린 두 줄의 불꽃 칼자국 */
+          this.cuts.push({ x: d.x, y: d.y, r: d.r, life: 0.5, max: 0.5, seed: Math.random() });
+          this.spark(d.x, d.y, 16, { color: ['#fff1a8', '#ffb347', '#e8552a', '#ffffff'], speed: 3.4, life: 0.4, size: 0.07, lift: -0.4 });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.1);
+        } else if (d.kind === 'sword') {
+          /* 화염검이 땅에 꽂히며 불길이 솟는다 */
+          this.columns.push({ kind: 'sword', x: d.x, y: d.y, r: d.r, life: 0.55, max: 0.55 });
+          this.rings.push({ x: d.x, y: d.y, r: d.r * 1.3, life: 0.36, max: 0.36, color: '255,150,40' });
+          this.spark(d.x, d.y, 12, { color: ['#fff1a8', '#ffb347', '#e8552a'], speed: 2.8, life: 0.45, size: 0.07, lift: -1.4, spread: d.r * 0.6 });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.06);
         } else if (d.kind === 'pillar') {
           this.columns.push({ x: d.x, y: d.y, r: d.r, life: 0.6, max: 0.6 });
           this.rings.push({ x: d.x, y: d.y, r: d.r * 1.25, life: 0.4, max: 0.4, color: '255,150,40' });
@@ -499,7 +524,7 @@ class Renderer {
         if (!this.clean) this.floaters.push({ x: d.x, y: d.y - 0.6, text: '−' + Math.min(d.enemy.lives, 99), color: '#ff6b55', life: 1.2, max: 1.2 });
         break;
       case 'build':
-        if (d.tower.type === 'lord') {
+        if (d.tower.def.unique) {
           /* 화염파의 등장: 불빛 고리가 퍼지고 불티가 솟는다 */
           this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 1.8, life: 0.7, max: 0.7, color: '255,150,40' });
           this.spark(d.tower.cx, d.tower.cy - 0.3, 26, { color: ['#ffd88f', '#ff9226', '#ffffff', '#2f2b3d'], speed: 2.6, life: 0.8, size: 0.07, lift: -1.2, spread: 0.4 });
@@ -509,7 +534,7 @@ class Renderer {
         this.spark(d.tower.cx, d.tower.cy + 0.3, 9, { color: ['#e3c792', '#c9aa72', '#ffffff'], speed: 1.3, life: 0.45, size: 0.07, lift: -0.3, soft: true });
         break;
       case 'upgrade':
-        if (d.tower.type === 'lord') {
+        if (d.tower.def.unique) {
           /* 망토가 길어지고 불길이 커지는 순간 */
           this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 1.5, life: 0.6, max: 0.6, color: '255,150,40' });
           this.spark(d.tower.cx, d.tower.cy - 0.4, 22, { color: ['#ffd88f', '#ffffff', '#ff9226'], speed: 2.2, life: 0.8, size: 0.06, lift: -1.6, spread: 0.5 });
@@ -574,6 +599,7 @@ class Renderer {
     this.drawActors(ctx, t, dt);
     this.drawBeams(ctx, t);
     this.drawSweeps(ctx, t);
+    this.drawSlashes(ctx, t, dt);
     this.drawStrikes(ctx, t, dt);
     this.drawShots(ctx, t);
     this.drawEffects(ctx, dt);
@@ -743,6 +769,7 @@ class Renderer {
     const every = tw.lv.cd || tw.lv.every;
     o.load = every && this.game.phase === 'wave' ? 1 - Math.max(0, Math.min(1, tw.cd / (every / tw.haste))) : 1;
     if (tw.type === 'lord') have = this.lordPose(tw, o, have, want, dt);
+    else if (tw.def.mech === 'blade') have = this.bladePose(tw, o, have, want, dt);
     art.top(ctx, tw.level, have, o);
     ctx.restore();
     if (art.front) this.blit(ctx, this.sprite('f:' + tw.type + ':' + tw.level, BOX_TOWER, (g) => art.front(g, tw.level)), x, y);
@@ -775,6 +802,50 @@ class Renderer {
     st.o = o;
     st.ang = ang;
     return ang;
+  }
+
+  /* 홍련의 검기가 지금 어디까지 왔는지: [꼬리, 머리] 의 각도(전장 기준)와 진행 정도 */
+  slashSpan(s) {
+    const k = Math.min(1, s.t / s.dur);
+    const head = k * (2 - k); /* 처음에 빠르게 나갔다가 끝에서 느려진다 */
+    const tail = Math.max(0, (k - 0.3) / 0.7) ** 2; /* 꼬리는 늦게 따라붙는다 */
+    return { k, head: s.a0 + (s.a1 - s.a0) * head, tail: s.a0 + (s.a1 - s.a0) * tail };
+  }
+
+  /* 홍련의 몸짓을 정한다. 베는 동안에는 칼이 그 베기의 궤적을 그대로 따르고,
+     쉬는 동안에는 다음에 벨 자리(머리 위·앞 아래·등 뒤)로 부드럽게 옮겨 간다. */
+  bladePose(tw, o, have, want, dt) {
+    const art = TOWER_ART.blade;
+    let st = this.poses.get(tw.id);
+    if (!st) {
+      st = { face: Math.cos(want) >= 0 ? 1 : -1, th: art.REST, idle: 1 };
+      this.poses.set(tw.id, st);
+    }
+    const s = tw.slash;
+    /* 보는 쪽: 거의 위아래를 겨눌 때와 베는 도중에는 보던 쪽을 그대로 둔다 */
+    const side = this.u(tw.cx + Math.cos(tw.mid), tw.cy + Math.sin(tw.mid)) - this.u(tw.cx, tw.cy);
+    if (Math.abs(side) > 0.2 && !s) st.face = side >= 0 ? 1 : -1;
+    const c = art.center(have, st.face);
+    o.swing = null;
+    if (s) {
+      const k = Math.min(1, s.t / s.dur);
+      o.swing = { k, step: s.step };
+      st.th = s.step === 2 ? art.guardAngle(2, c) : art.swingAngle(s.step, k, c);
+    } else {
+      let diff = art.guardAngle(tw.combo, c) - st.th;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      st.th += diff * (dt > 0 ? 1 - Math.exp(-dt * 11) : 0);
+    }
+    const resting = this.game.phase !== 'wave' || (tw.idle && tw.cast <= 0);
+    st.idle += ((resting ? 1 : 0) - st.idle) * (dt > 0 ? 1 - Math.exp(-dt * 7) : 0);
+    o.pose = st;
+    o.face = st.face;
+    o.next = tw.combo;
+    o.gest = tw.gest;
+    o.cast = tw.cast > 0 ? tw.cast / (tw.castDur || 1) : 0;
+    o.charge = tw.lv.swords ? 1 - Math.max(0, Math.min(1, tw.swordT / BLADE_SWORD_EVERY)) : 0;
+    return have;
   }
 
   drawEnemy(ctx, e, t) {
@@ -936,6 +1007,14 @@ class Renderer {
     const { ts, game } = this;
     ctx.lineCap = 'round';
     for (const s of game.strikes || []) {
+      if (s.kind === 'sword') {
+        /* 화염검: 하늘에서 곧게 내리꽂힌다 */
+        const k = Math.max(0, Math.min(1, s.t / s.delay));
+        if (k < 0.35) continue;
+        const f = 1 - (k - 0.35) / 0.65; /* 남은 길: 1 → 0 */
+        this.flameSword(ctx, this.px(s.x, s.y) + ts * 0.5 * f, this.py(s.x, s.y) - ts * 7 * f * f, 1, t);
+        continue;
+      }
       if (s.kind !== 'meteor') continue;
       const big = s.r > 1.1 ? 1.5 : 1;
       const k = Math.max(0, Math.min(1, s.t / s.delay));
@@ -999,8 +1078,9 @@ class Renderer {
       const up = Math.min(1, (1 - k) * 5);
       const x = this.px(c.x, c.y);
       const y = this.py(c.x, c.y);
-      const w = c.r * ts * (0.62 + 0.2 * (1 - k));
-      const h = ts * 3.1 * up;
+      const sword = c.kind === 'sword';
+      const w = c.r * ts * (sword ? 0.5 : 0.62 + 0.2 * (1 - k));
+      const h = ts * (sword ? 1.5 : 3.1) * up;
       const wob = Math.sin(t * 40 + c.x * 7) * w * 0.08;
       for (const [f, color] of [[1, `rgba(255,104,24,${0.55 * k})`], [0.66, `rgba(255,170,60,${0.85 * k})`], [0.34, `rgba(255,246,207,${0.95 * k})`]]) {
         ctx.fillStyle = color;
@@ -1016,8 +1096,179 @@ class Renderer {
       ctx.beginPath();
       ctx.ellipse(x, y, w * 1.25, w * 0.5, 0, 0, Math.PI * 2);
       ctx.fill();
+      if (sword) this.flameSword(ctx, x, y, Math.min(1, k * 2.2), t); /* 땅에 꽂힌 검이 불길 속에서 사라진다 */
     }
     this.columns.length = n;
+  }
+
+  /* 끝을 아래로 한 화염검 한 자루. (x, y) 는 칼끝이 닿는 화면 좌표 */
+  flameSword(ctx, x, y, alpha, t) {
+    const ts = this.ts;
+    const len = ts * 1.15;
+    const hw = ts * 0.11;
+    ctx.globalAlpha = alpha;
+    /* 칼을 감싼 불길 */
+    for (const [f, color] of [[1.9, 'rgba(232,85,42,.55)'], [1.35, 'rgba(255,150,40,.8)']]) {
+      const wob = Math.sin(t * 30 + x * 0.05) * hw * 0.3;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x, y + ts * 0.06);
+      ctx.quadraticCurveTo(x - hw * f * 1.4, y - len * 0.5, x - hw * f * 0.5 + wob, y - len * 1.25);
+      ctx.quadraticCurveTo(x + wob * 0.5, y - len * (1.3 + 0.12 * f), x + hw * f * 0.5 + wob, y - len * 1.2);
+      ctx.quadraticCurveTo(x + hw * f * 1.4, y - len * 0.5, x, y + ts * 0.06);
+      ctx.fill();
+    }
+    /* 날, 코등이, 손잡이 */
+    ctx.fillStyle = '#ffd45a';
+    ctx.strokeStyle = '#2b2536';
+    ctx.lineWidth = Math.max(1, ts * 0.03);
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - hw, y - len * 0.28);
+    ctx.lineTo(x - hw * 0.85, y - len);
+    ctx.lineTo(x + hw * 0.85, y - len);
+    ctx.lineTo(x + hw, y - len * 0.28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fff6cf';
+    ctx.beginPath();
+    ctx.moveTo(x, y - len * 0.06);
+    ctx.lineTo(x - hw * 0.35, y - len * 0.3);
+    ctx.lineTo(x - hw * 0.3, y - len * 0.96);
+    ctx.lineTo(x + hw * 0.3, y - len * 0.96);
+    ctx.lineTo(x + hw * 0.35, y - len * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f4b93a';
+    ctx.fillRect(x - hw * 2.1, y - len * 1.06, hw * 4.2, len * 0.07);
+    ctx.strokeRect(x - hw * 2.1, y - len * 1.06, hw * 4.2, len * 0.07);
+    ctx.fillStyle = '#48291a';
+    ctx.fillRect(x - hw * 0.4, y - len * 1.28, hw * 0.8, len * 0.22);
+    ctx.strokeRect(x - hw * 0.4, y - len * 1.28, hw * 0.8, len * 0.22);
+    ctx.globalAlpha = 1;
+  }
+
+  /* 초승달 모양 검기 한 줄. 전장의 (cx, cy) 를 중심으로 a0(꼬리) → a1(머리) 를 잇는다.
+     가운데가 가장 두껍고 양 끝은 뾰족하며, 바깥 테두리로 갈수록 밝다. */
+  crescent(ctx, cx, cy, a0, a1, R, thick, alpha, seed) {
+    const ts = this.ts;
+    const span = a1 - a0;
+    const n = Math.max(6, Math.ceil(Math.abs(span) / 0.14));
+    const lift = ts * 0.2;
+    const pt = (a, r) => [this.px(cx + Math.cos(a) * r, cy + Math.sin(a) * r), this.py(cx + Math.cos(a) * r, cy + Math.sin(a) * r) - lift];
+    /* 두께: 머리 가까이가 가장 두껍다 */
+    const prof = (f) => Math.sin(Math.PI * Math.pow(f, 1.45));
+    const layer = (out, th, color, ragged) => {
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const p = pt(a0 + (span * i) / n, R + out);
+        if (i) ctx.lineTo(p[0], p[1]);
+        else ctx.moveTo(p[0], p[1]);
+      }
+      for (let i = n; i >= 0; i--) {
+        const f = i / n;
+        const wob = ragged ? 1 + 0.28 * Math.sin(i * 2.9 + seed * 20) * Math.sin(f * Math.PI) : 1;
+        const p = pt(a0 + span * f, R + out - th * prof(f) * wob);
+        ctx.lineTo(p[0], p[1]);
+      }
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    layer(0.05, thick * 1.5, `rgba(122,26,14,${0.5 * alpha})`, true); /* 뒤에 끌리는 검붉은 불길 */
+    layer(0.03, thick, `rgba(232,85,42,${0.88 * alpha})`, true);
+    layer(0, thick * 0.62, `rgba(255,170,60,${0.95 * alpha})`, false);
+    layer(-0.015, thick * 0.3, `rgba(255,241,168,${alpha})`, false);
+    /* 가장 뜨거운 바깥 날 */
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = Math.max(1, ts * 0.045);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = Math.floor(n * 0.35); i <= n; i++) {
+      const p = pt(a0 + (span * i) / n, R + 0.01);
+      if (i === Math.floor(n * 0.35)) ctx.moveTo(p[0], p[1]);
+      else ctx.lineTo(p[0], p[1]);
+    }
+    ctx.stroke();
+  }
+
+  /* 홍련의 검기와 십자 베기 자국 */
+  drawSlashes(ctx, t, dt) {
+    const { ts, game } = this;
+    for (const tw of game.towers) {
+      const s = tw.slash;
+      if (!s || tw.def.mech !== 'blade') continue;
+      const sp = this.slashSpan(s);
+      if (Math.abs(sp.head - sp.tail) < 0.05) continue;
+      const spin = s.step === 2;
+      const grow = 1 + tw.level * 0.22;
+      const fade = Math.min(1, (1 - sp.k) * 3.2 + 0.1);
+      this.crescent(ctx, tw.cx, tw.cy, sp.tail, sp.head, tw.range * (spin ? 1 : 0.95), (spin ? 0.5 : 0.4) * grow, fade, tw.id);
+      if (spin) this.crescent(ctx, tw.cx, tw.cy, sp.tail + 0.3, sp.head - 0.5, tw.range * 0.55, 0.26 * grow, fade * 0.85, tw.id + 1.7);
+    }
+
+    let n = 0;
+    for (const c of this.cuts) {
+      c.life -= dt;
+      if (c.life <= 0) continue;
+      this.cuts[n++] = c;
+      const k = 1 - c.life / c.max; /* 0 → 1 */
+      const x = this.px(c.x, c.y);
+      const y = this.py(c.x, c.y) - ts * 0.15;
+      const fade = Math.min(1, (1 - k) * 2.6);
+      const L = c.r * ts * 2.5;
+      /* 자국을 두른 고리 */
+      ctx.strokeStyle = `rgba(255,170,60,${0.8 * fade})`;
+      ctx.lineWidth = Math.max(1, ts * 0.06);
+      ctx.beginPath();
+      ctx.arc(x, y, c.r * ts * (0.9 + 0.5 * k), 0, Math.PI * 2);
+      ctx.stroke();
+      for (let j = 0; j < 2; j++) {
+        const g = Math.max(0, Math.min(1, (k - j * 0.16) / 0.16)); /* 긋는 정도 */
+        if (g <= 0) continue;
+        const a = (j ? -1 : 1) * 0.82 + (c.seed - 0.5) * 0.3;
+        const ux = Math.cos(a);
+        const uy = Math.sin(a);
+        const x0 = x - ux * L * 0.5;
+        const y0 = y - uy * L * 0.5;
+        const x1 = x0 + ux * L * g;
+        const y1 = y0 + uy * L * g;
+        for (const [w, color] of [[0.34, `rgba(122,26,14,${0.5 * fade})`], [0.24, `rgba(232,85,42,${0.9 * fade})`], [0.15, `rgba(255,170,60,${fade})`], [0.07, `rgba(255,246,207,${fade})`]]) {
+          const hw = ts * w * 0.5;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo((x0 + x1) / 2 - uy * hw, (y0 + y1) / 2 + ux * hw);
+          ctx.lineTo(x1, y1);
+          ctx.lineTo((x0 + x1) / 2 + uy * hw, (y0 + y1) / 2 - ux * hw);
+          ctx.closePath();
+          ctx.fill();
+        }
+        if (g >= 1) {
+          /* 칼자국 끝에서 반짝이는 빛 */
+          for (const sgn of [-1, 1]) {
+            const sx = x + ux * L * 0.5 * sgn;
+            const sy = y + uy * L * 0.5 * sgn;
+            const sz = ts * 0.13 * fade;
+            ctx.fillStyle = `rgba(255,246,207,${fade})`;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy - sz);
+            ctx.lineTo(sx + sz * 0.25, sy - sz * 0.25);
+            ctx.lineTo(sx + sz, sy);
+            ctx.lineTo(sx + sz * 0.25, sy + sz * 0.25);
+            ctx.lineTo(sx, sy + sz);
+            ctx.lineTo(sx - sz * 0.25, sy + sz * 0.25);
+            ctx.lineTo(sx - sz, sy);
+            ctx.lineTo(sx - sz * 0.25, sy - sz * 0.25);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
+    }
+    this.cuts.length = n;
   }
 
   /* 탑 둘레로 퍼져 나가는 고리: 화염파의 충격파, 종소리, 한파, 지진, 중력, 시간 정지 */

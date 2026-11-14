@@ -203,6 +203,17 @@
         ['거리', (l) => f1(l.range)],
       ];
     }
+    if (def.mech === 'blade') {
+      return [
+        ['베기', (l) => f1(l.dmg)],
+        ['회전 베기', (l) => f1(l.dmg * l.finish)],
+        ['화상', (l) => '초당 ' + f1(l.dot)],
+        ['십자 베기', (l) => (l.cross ? f1(l.cross) : '—')],
+        ['화염검', (l) => (l.sword ? l.swords + '×' + f1(l.sword) : '—')],
+        ['연사', (l) => f1(1 / l.cd)],
+        ['거리', (l) => f1(l.range)],
+      ];
+    }
     const out = [];
     const many = (l) => (l.rockets ? '×' + l.rockets : l.multi > 1 ? '×' + l.multi : l.count > 1 ? '×' + l.count : '');
     if (has('dps')) out.push(['초당 피해', (l) => f1(l.dps) + (def.mech === 'beam' && !l.split ? '~' + f1(l.dps * 3) : '')]);

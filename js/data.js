@@ -39,6 +39,7 @@ const TARGET_MODES = [
      trap     길 위에 덫을 traps 개까지 깐다    buff   곁의 탑을 돕는다(amp 피해, haste 연사, reach 사거리)
      income   골드를 번다. interest 는 웨이브가 끝날 때 가진 골드에 붙는 이자(cap 까지)
      lord     영웅 화염파
+     blade    영웅 홍련
    맞은 적에게 걸리는 효과: slow·slowT(둔화), stun(기절), dot·dotT(지속 피해), shred·shredMax(갑옷 깎기),
      kb(뒤로 밀어내기), exec(체력이 이 비율 아래면 즉사), bounty(이 탑이 처치하면 더 받는 골드).
    dtype 은 피해의 종류: 'phys'(갑옷에 깎인다, 기본값) 또는 'magic'. pierce 면 갑옷을 무시한다. */
@@ -425,6 +426,19 @@ const TOWERS = {
       { cost: 820, dmg: 70, cd: 1.8, range: 4.3, arc: 2.0, shock: 58, shockR: 2.4, push: 1.3, pillar: 130, pillars: 2, meteor: 95, meteors: 5, h: 0.6 },
     ],
   },
+  /* 영웅: 불꽃 검을 든 홍련. 화염파가 멀리서 넓게 태운다면, 홍련은 길 가까이에 서서 다가온 적을 연달아 벤다.
+     dmg 는 한 번 벨 때 적 하나가 받는 피해, arc 는 베는 부채꼴의 각도(라디안), cd 는 베기 사이의 틈,
+     finish 는 세 번째 회전 베기의 피해 배율, dot 는 회전 베기와 기술이 남기는 화상(초당),
+     cross 는 2단부터 쓰는 십자 베기의 피해, sword·swords 는 3단의 화염검 하나의 피해와 개수, h 는 가슴 높이. */
+  blade: {
+    name: '홍련', rarity: 'mythic', unique: true, mech: 'blade', dtype: 'magic', dotKind: 'burn',
+    blurb: '불꽃 검으로 다가온 적을 연달아 벱니다. 두 번 가로로 베고, 세 번째는 한 바퀴 돌며 둘레의 적을 모두 베어 불태웁니다. 2단에서 가장 센 적을 가르는 십자 베기, 3단에서 화염검 낙하를 익힙니다. 껍질을 무시합니다. 한 판에 하나만 세울 수 있습니다.',
+    levels: [
+      { cost: 500, dmg: 16, cd: 0.62, range: 2.0, arc: 2.2, finish: 1.8, dot: 4, h: 0.42 },
+      { cost: 450, dmg: 25, cd: 0.56, range: 2.2, arc: 2.4, finish: 1.9, dot: 8, cross: 140, h: 0.48 },
+      { cost: 800, dmg: 42, cd: 0.5, range: 2.4, arc: 2.6, finish: 2.0, dot: 13, cross: 230, sword: 110, swords: 3, h: 0.56 },
+    ],
+  },
 };
 
 /* 화면에 늘어놓는 순서: 등급 순, 같은 등급 안에서는 위에 적은 순 */
@@ -452,6 +466,17 @@ const LORD_METEOR_R = 0.85; // 유성 하나가 터지는 반지름(칸)
 const LORD_SHOCK_EVERY = 6; // 충격파를 쓰는 간격(초)
 const LORD_SHOCK_TIME = 0.4; // 충격파가 끝까지 퍼지는 시간(초)
 const LORD_SHOCK_AT = 0.7; // 몸짓이 이만큼 남았을 때(전체의 비율) 발을 굴러 충격파가 나간다
+const BLADE_SWING = 0.2; // 홍련: 가로 베기 한 번이 지나가는 시간(초)
+const BLADE_SPIN = 0.42; // 회전 베기가 한 바퀴 도는 시간(초)
+const BLADE_REST = 1.7; // 회전 베기 뒤에는 베기 사이의 틈이 이만큼(배) 길다
+const BLADE_BURN = 3; // 화상이 이어지는 시간(초)
+const BLADE_REACH = 1.7; // 십자 베기·화염검이 닿는 거리(사거리의 배)
+const BLADE_CROSS_EVERY = 5; // 십자 베기를 쓰는 간격(초)
+const BLADE_CROSS_AT = 0.5; // 몸짓이 이만큼 남았을 때(전체의 비율) 칼을 그어 피해가 들어간다
+const BLADE_CROSS_R = 0.7; // 십자 베기가 번지는 반지름(칸)
+const BLADE_SWORD_EVERY = 9; // 화염검 낙하를 쓰는 간격(초)
+const BLADE_SWORD_DELAY = 0.6; // 첫 화염검이 떨어지기까지(초)
+const BLADE_SWORD_R = 0.75; // 화염검 하나가 터지는 반지름(칸)
 const BEAM_RAMP = 0.8; // 광선탑: 같은 적을 비춘 시간 1초마다 피해가 이만큼(배) 더 붙는다. 최대 3배.
 
 /* ───────── 뽑기와 등급 ─────────
@@ -479,7 +504,7 @@ function towerStats(type, level, rank) {
   if (!rank) return base;
   const k = 1 + RANK_BONUS * rank;
   const lv = Object.assign({}, base);
-  for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
+  for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor', 'cross', 'sword']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
   if (lv.income) lv.income = Math.round(lv.income * (1 + 0.1 * rank));
   const mech = TOWERS[type].mech;
   if (mech === 'aura' || mech === 'buff') lv.range = Math.round(lv.range * (1 + 0.05 * rank) * 100) / 100;

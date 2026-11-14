@@ -266,6 +266,11 @@ class Game {
       shockT: 1.5, // 화염파: 다음 충격파까지
       wave: null, // 화염파: 퍼져 나가는 충격파 { t, dur, r, hit }
       wavePending: false,
+      combo: 0, // 홍련: 다음에 할 베기 (0·1 = 가로 베기, 2 = 회전 베기)
+      slash: null, // 홍련: 지금 긋고 있는 검기 { a0, a1, t, dur, step }
+      crossT: 2, // 홍련: 다음 십자 베기까지
+      crossAim: null, // 홍련: 십자 베기로 가를 적
+      swordT: 4, // 홍련: 다음 화염검 낙하까지
       kills: 0,
       dealt: 0,
     };
@@ -603,6 +608,7 @@ class Game {
         case 'nova': this.runNova(t, dt); continue;
         case 'trap': this.runTrap(t, dt); continue;
         case 'lord': this.runLord(t, dt); continue;
+        case 'blade': this.runBlade(t, dt); continue;
       }
       if (t.burst > 0) {
         t.burstT -= dt;
@@ -1176,6 +1182,107 @@ class Game {
       this.emit('sear', { x: e.x, y: e.y, r: e.r });
     }
     if (k >= 1) t.sweep = null;
+  }
+
+  /* ───── 홍련(영웅) ─────
+     길 가까이에 서서 불꽃 검으로 연달아 벤다. 두 번 가로로 베고, 세 번째는 한 바퀴 돌며 둘레를 모두 베어 불태운다.
+     2단부터는 사거리 밖까지 닿는 십자 베기로 가장 센 적을 가르고, 3단에서는 화염검을 떨군다. */
+  runBlade(t, dt) {
+    const lv = t.lv;
+    if (t.cast > 0) t.cast = Math.max(0, t.cast - dt);
+    if (t.cd > 0) t.cd -= dt;
+    if (t.crossT > 0) t.crossT -= dt;
+    if (t.swordT > 0) t.swordT -= dt;
+    if (t.slash) {
+      t.slash.t += dt;
+      if (t.slash.t >= t.slash.dur) t.slash = null;
+    }
+    /* 십자 베기: 칼을 치켜들었다가 긋는 순간에 들어간다. 그사이 적이 움직였으면 따라가서 가른다 */
+    if (t.crossAim && t.cast <= t.castDur * BLADE_CROSS_AT) {
+      const c = t.crossAim;
+      t.crossAim = null;
+      const x = c.e.alive ? c.e.x : c.x;
+      const y = c.e.alive ? c.e.y : c.y;
+      this.blast(x, y, BLADE_CROSS_R, t, { dmg: lv.cross, dtype: 'magic', dot: lv.dot, dotT: BLADE_BURN });
+      this.emit('burst', { kind: 'cross', x, y, r: BLADE_CROSS_R });
+    }
+    const target = this.pickTarget(t);
+    const skill = (lv.cross && t.crossT <= 0) || (lv.swords && t.swordT <= 0);
+    const far = (lv.cross || lv.swords) && (skill || !target) ? this.bladeReach(t) : [];
+    const look = target || far[0];
+    t.idle = !look;
+    if (!look) return;
+    if (!t.slash) {
+      t.aimX = look.x;
+      t.aimY = look.y;
+      t.mid = Math.atan2(look.y - t.cy, look.x - t.cx);
+    }
+    if (t.cast > 0 || t.slash) return; /* 하던 몸짓과 베기가 끝날 때까지는 새로 시작하지 않는다 */
+    if (lv.swords && t.swordT <= 0 && far.length) {
+      t.swordT = BLADE_SWORD_EVERY;
+      this.lordGesture(t, 'swords', 0.9);
+      /* 센 적부터 한 자루씩. 적이 모자라면 남은 검도 센 적에게 떨어진다 */
+      for (let i = 0; i < lv.swords; i++) {
+        const e = far[i % far.length];
+        const wait = BLADE_SWORD_DELAY + i * 0.15;
+        const p = {};
+        e.path.at(Math.min(e.path.length, e.dist + (e.cur || e.speed) * wait), p);
+        const again = i >= far.length ? 0.5 : 0;
+        this.strikes.push({
+          kind: 'sword', x: p.x + (this.rand() - 0.5) * again, y: p.y + (this.rand() - 0.5) * again,
+          t: 0, delay: wait, r: BLADE_SWORD_R, fx: { dmg: lv.sword, dtype: 'magic', dot: lv.dot, dotT: BLADE_BURN }, src: t, seed: this.rand(),
+        });
+      }
+      this.emit('cast', { kind: 'swords', tower: t });
+      return;
+    }
+    if (lv.cross && t.crossT <= 0 && far.length) {
+      const e = far[0];
+      t.crossT = BLADE_CROSS_EVERY;
+      this.lordGesture(t, 'cross', 0.62);
+      t.crossAim = { e, x: e.x, y: e.y };
+      t.aimX = e.x;
+      t.aimY = e.y;
+      t.mid = Math.atan2(e.y - t.cy, e.x - t.cx);
+      this.emit('cast', { kind: 'cross', tower: t });
+      return;
+    }
+    if (!target || t.cd > 0) return;
+    const step = t.combo;
+    const spin = step === 2;
+    t.combo = (step + 1) % 3;
+    t.cd = (lv.cd * (spin ? BLADE_REST : 1)) / t.haste;
+    t.recoil = 1;
+    t.flash = 1;
+    /* 가로 베기는 번갈아 반대쪽에서 시작하고, 회전 베기는 한 바퀴를 돈다 */
+    const mid = t.mid;
+    const half = lv.arc / 2;
+    const a0 = step === 1 ? mid + half : mid - half;
+    const a1 = spin ? a0 + Math.PI * 2 : step === 1 ? mid - half : mid + half;
+    t.slash = { a0, a1, t: 0, dur: spin ? BLADE_SPIN : BLADE_SWING, step };
+    const fx = spin ? { dmg: lv.dmg * lv.finish, dtype: 'magic', dot: lv.dot, dotT: BLADE_BURN } : { dmg: lv.dmg, dtype: 'magic' };
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - t.cx;
+      const dy = e.y - t.cy;
+      const d = Math.hypot(dx, dy);
+      if (d > t.range + e.r * 0.5) continue;
+      if (!spin) {
+        let ang = Math.atan2(dy, dx) - mid;
+        while (ang > Math.PI) ang -= Math.PI * 2;
+        while (ang < -Math.PI) ang += Math.PI * 2;
+        if (Math.abs(ang) > half + Math.atan2(e.r * 0.5, Math.max(0.3, d))) continue;
+      }
+      this.strike(e, t, fx, 1);
+      this.emit('hit', { kind: 'slash', skin: 'ember', x: e.x, y: e.y });
+    }
+    this.emit('shoot', { kind: 'blade', step, tower: t });
+  }
+
+  /* 홍련의 기술이 닿는 적들: 센 적부터 */
+  bladeReach(t) {
+    const r2 = (t.range * BLADE_REACH) ** 2;
+    return this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2).sort((a, b) => b.hp - a.hp);
   }
 
   updateShots(dt) {
