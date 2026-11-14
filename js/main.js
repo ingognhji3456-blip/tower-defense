@@ -114,6 +114,8 @@
 
   /* ───── 가진 탑과 편성 ───── */
 
+  const lent = new Set(); /* 시험용으로 빌려준(뽑지 않은) 탑 */
+
   function loadProfile() {
     let p = store.get(KEY.profile, null);
     if (!p || typeof p !== 'object' || !p.owned || typeof p.owned !== 'object') {
@@ -124,6 +126,11 @@
     const owned = {};
     for (const t of STARTER.towers) owned[t] = 0;
     for (const t of Object.keys(p.owned)) if (TOWERS[t]) owned[t] = Math.max(0, Math.min(MAX_RANK, p.owned[t] | 0));
+    if (UNLOCK_ALL) {
+      for (const t of TOWER_ORDER) {
+        if (!(t in owned)) { owned[t] = 0; lent.add(t); }
+      }
+    }
     p.owned = owned;
     p.loadout = [...new Set(Array.isArray(p.loadout) ? p.loadout : [])].filter((t) => t in owned).slice(0, LOADOUT_MAX);
     p.gems = Math.max(0, p.gems | 0);
@@ -132,8 +139,16 @@
     return p;
   }
   app.profile = loadProfile();
-  const saveProfile = () => store.set(KEY.profile, app.profile);
+  const saveProfile = () => {
+    /* 빌려준 탑은 저장하지 않는다 */
+    const owned = {};
+    for (const t of Object.keys(app.profile.owned)) {
+      if (!lent.has(t)) owned[t] = app.profile.owned[t];
+    }
+    store.set(KEY.profile, Object.assign({}, app.profile, { owned }));
+  };
   const owns = (type) => type in app.profile.owned;
+  const earned = (type) => owns(type) && !lent.has(type); /* 빌린 것이 아니라 정말로 얻은 탑 */
   const rankOf = (type) => app.profile.owned[type] | 0;
   const ranksFor = (list) => Object.fromEntries(list.map((t) => [t, rankOf(t)]));
 
@@ -376,7 +391,10 @@
     }
     el.gachaBtn.classList.toggle('dot', app.profile.gems >= PULL_COST);
     el.challengeBtn.disabled = !challengeOpen();
-    el.lobbyHint.textContent = challengeOpen() ? '' : '도전 모드는 스테이지 ' + CHALLENGE_UNLOCK + '를 깨면 열립니다.';
+    el.lobbyHint.textContent = [
+      lent.size ? '시험 모드: 모든 탑이 열려 있습니다. 탑 편성에서 골라 쓰세요.' : '',
+      challengeOpen() ? '' : '도전 모드는 스테이지 ' + CHALLENGE_UNLOCK + '를 깨면 열립니다.',
+    ].filter(Boolean).join(' ');
     setSoundLabel();
   }
 
@@ -619,14 +637,15 @@
       }
       return list[list.length - 1];
     };
-    const missing = TOWER_ORDER.filter((t) => !owns(t));
+    const missing = TOWER_ORDER.filter((t) => !earned(t));
     const sure = missing.length && (p.pulls < STARTER.sure || p.dry >= 2);
     const type = pick(sure ? missing : TOWER_ORDER);
     p.pulls++;
-    if (!owns(type)) {
+    if (!earned(type)) {
+      lent.delete(type); /* 빌려 쓰던 탑이라면 이제 내 것 */
       p.owned[type] = 0;
       p.dry = 0;
-      if (p.loadout.length < LOADOUT_MAX) p.loadout.push(type);
+      if (p.loadout.length < LOADOUT_MAX && !p.loadout.includes(type)) p.loadout.push(type);
       return { type, kind: 'new' };
     }
     p.dry++;
@@ -707,7 +726,7 @@
     el.pull1.disabled = app.pulling;
     el.pull5.disabled = app.pulling;
     const odds = Object.keys(RARITY).map((r) => RARITY[r].name + ' ' + RARITY[r].weight + '%').join(' · ');
-    const left = TOWER_ORDER.filter((t) => !owns(t)).length;
+    const left = TOWER_ORDER.filter((t) => !earned(t)).length;
     el.odds.textContent = '확률 — ' + odds + '. 이미 가진 탑이 나오면 그 탑의 등급이 오르고(최대 +' + MAX_RANK + ', 등급마다 위력 +' + Math.round(RANK_BONUS * 100) + '%), 등급이 가득 찬 탑은 보석 '
       + DUPE_GEMS + '개로 돌려받습니다. 가진 탑이 두 번 잇달아 나오면 다음에는 새 탑이 나옵니다. ' + (left ? '아직 얻지 못한 탑 ' + left + '종.' : '모든 탑을 얻었습니다.');
   }

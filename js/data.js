@@ -167,6 +167,8 @@ const RANK_BONUS = 0.08;
 const DUPE_GEMS = 30; // 등급이 가득 찬 탑이 또 나오면 돌려받는 보석
 const LOADOUT_MAX = 5;
 const STARTER = { towers: ['crossbow', 'cannon'], gems: 300, sure: 3 }; // 처음 가진 탑·보석, 새 탑이 보장되는 뽑기 횟수
+/* 시험용 스위치: 켜 두면 뽑지 않은 탑도 모두 가진 것으로 치고 편성할 수 있다. 빌려준 탑은 저장되지 않으므로, 끄면 뽑은 탑만 남는다. */
+const UNLOCK_ALL = true;
 
 /* 등급을 반영한 탑의 수치 */
 function towerStats(type, level, rank) {
