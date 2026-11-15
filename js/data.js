@@ -41,6 +41,7 @@ const TARGET_MODES = [
      lord     영웅 화염파
      blade    영웅 홍련
      moon     영웅 자월
+     oni      영웅 야차
    맞은 적에게 걸리는 효과: slow·slowT(둔화), stun(기절), dot·dotT(지속 피해), shred·shredMax(갑옷 깎기),
      kb(뒤로 밀어내기), exec(체력이 이 비율 아래면 즉사), bounty(이 탑이 처치하면 더 받는 골드).
    dtype 은 피해의 종류: 'phys'(갑옷에 깎인다, 기본값) 또는 'magic'. pierce 면 갑옷을 무시한다. */
@@ -456,6 +457,21 @@ const TOWERS = {
       { cost: 840, dmg: 80, cd: 0.74, range: 3.6, ring: 2.0, finish: 2.1, orb: 170, orbDps: 32, eclipse: 560, h: 0.56 },
     ],
   },
+  /* 영웅: 검붉은 귀기를 두른 야차. 손톱으로 땅을 갈라 귀참을 날리고, 혼불을 풀어 적을 쫓게 한다.
+     dmg 는 귀참이 적 하나에게 주는 피해, soul·souls 는 세 번째 공격으로 푸는 혼불 하나의 피해와 개수,
+     breath 는 2단부터 쓰는 귀염포가 줄기 안의 적에게 모두 합쳐 주는 피해,
+     beast 는 3단에서 부르는 귀수가 들이받는 피해(끝에서 터질 때는 그 0.8배), h 는 가슴 높이.
+     3단에 오르면 큰 귀신의 모습으로 변신한다. */
+  oni: {
+    name: '야차', rarity: 'mythic', unique: true, mech: 'oni', dtype: 'magic',
+    learn: [null, '귀염포', '변신 · 귀수'], /* 그 단계에 올라서며 익히는 공격 */
+    blurb: '손톱을 휘둘러 땅을 가르는 귀참을 날립니다. 귀참은 곧게 달려가며 지나는 적을 모두 베고, 세 번째 공격으로는 적을 쫓아가는 혼불을 여럿 풉니다. 2단에서 일직선의 적을 모두 태우는 귀염포를 익히고, 3단에서는 큰 귀신으로 변신해 길을 따라 달려가 터지는 귀수를 부릅니다. 껍질을 무시합니다. 한 판에 하나만 세울 수 있습니다.',
+    levels: [
+      { cost: 560, dmg: 64, cd: 0.85, range: 3.2, soul: 56, souls: 3, h: 0.42 },
+      { cost: 500, dmg: 86, cd: 0.8, range: 3.5, soul: 80, souls: 4, breath: 520, h: 0.48 },
+      { cost: 880, dmg: 112, cd: 0.74, range: 3.8, soul: 100, souls: 5, breath: 760, beast: 640, h: 0.62 },
+    ],
+  },
 };
 
 /* 화면에 늘어놓는 순서: 등급 순, 같은 등급 안에서는 위에 적은 순 */
@@ -512,6 +528,24 @@ const MOON_ECLIPSE_DELAY = 1.1; // 달 그림자가 새겨진 뒤 빛기둥이 �
 const MOON_ECLIPSE_SNARE = 0.42; // 그사이 이만큼 지났을 때(비율) 가시가 돋아 적을 옭아맨다
 const MOON_ECLIPSE_R = 1.3; // 월식의 반지름(칸)
 const MOON_ECLIPSE_STUN = 1.3; // 옭아매는 시간(초)
+const ONI_SWING = 0.24; // 야차: 손톱을 한 번 휘두르는 시간(초)
+const ONI_VOLLEY = 0.5; // 혼불을 푸는 몸짓의 시간(초)
+const ONI_REST = 1.4; // 혼불을 푼 뒤에는 공격 사이의 틈이 이만큼(배) 길다
+const ONI_WAVE_AT = 0.1; // 손톱을 휘두르기 시작해 귀참이 떠나기까지(초)
+const ONI_WAVE_SPEED = 10; // 귀참이 달려가는 빠르기(칸/초)
+const ONI_WAVE_HALF = 0.55; // 귀참의 반 너비(칸)
+const ONI_SOUL_SPEED = 6; // 혼불이 날아가는 빠르기(칸/초)
+const ONI_BREATH_EVERY = 8; // 귀염포를 쓰는 간격(초)
+const ONI_BREATH_WIND = 0.5; // 기를 모으는 시간(초)
+const ONI_BREATH_TIME = 0.8; // 귀염포를 내뿜는 시간(초)
+const ONI_BREATH_REACH = 1.7; // 귀염포가 닿는 거리(사거리의 배)
+const ONI_BREATH_HALF = 0.5; // 귀염포의 반 굵기(칸)
+const ONI_BEAST_EVERY = 13; // 귀수를 부르는 간격(초)
+const ONI_BEAST_AHEAD = 2; // 귀수가 나타나는 자리: 영웅 곁의 길에서 성문 쪽으로 이만큼(칸)
+const ONI_BEAST_RUN = 9; // 귀수가 달리는 거리(칸)
+const ONI_BEAST_SPEED = 7.5; // 귀수가 달리는 빠르기(칸/초)
+const ONI_BEAST_HALF = 0.8; // 귀수에게 들이받히는 거리(칸)
+const ONI_BEAST_R = 1.4; // 귀수가 터지는 반지름(칸)
 const BEAM_RAMP = 0.8; // 광선탑: 같은 적을 비춘 시간 1초마다 피해가 이만큼(배) 더 붙는다. 최대 3배.
 
 /* ───────── 뽑기와 등급 ─────────
@@ -539,7 +573,7 @@ function towerStats(type, level, rank) {
   if (!rank) return base;
   const k = 1 + RANK_BONUS * rank;
   const lv = Object.assign({}, base);
-  for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor', 'cross', 'sword', 'orb', 'orbDps', 'eclipse']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
+  for (const key of ['dmg', 'dot', 'dps', 'shock', 'pillar', 'meteor', 'cross', 'sword', 'orb', 'orbDps', 'eclipse', 'soul', 'breath', 'beast']) if (lv[key]) lv[key] = Math.round(lv[key] * k * 10) / 10;
   if (lv.income) lv.income = Math.round(lv.income * (1 + 0.1 * rank));
   const mech = TOWERS[type].mech;
   if (mech === 'aura' || mech === 'buff') lv.range = Math.round(lv.range * (1 + 0.05 * rank) * 100) / 100;

@@ -148,6 +148,8 @@ class Game {
     this.traps = []; // 길 위에 깔린 덫
     this.waves = []; // 자월: 날아가는 초승달 검기
     this.orbs = []; // 자월: 공허 구슬
+    this.souls = []; // 야차: 적을 쫓는 혼불
+    this.beasts = []; // 야차: 길을 따라 달리는 귀수
     this.queue = [];
     this.qi = 0;
     this.waveTime = 0;
@@ -276,6 +278,12 @@ class Game {
       orbT: 2.5, // 자월: 다음 공허 구슬까지
       orbAim: null, // 자월: 구슬을 던질 적
       eclipseT: 5, // 자월: 다음 월식까지
+      soulPending: false, // 야차: 혼불을 풀 차례
+      breathAim: null, // 야차: 귀염포를 내뿜을 쪽
+      beastPending: false, // 야차: 귀수를 부를 차례
+      breathT: 3, // 야차: 다음 귀염포까지
+      breath: null, // 야차: 지금 내뿜는 귀염포 { a, t, dur, tick, len }
+      beastT: 6, // 야차: 다음 귀수까지
       kills: 0,
       dealt: 0,
     };
@@ -344,6 +352,9 @@ class Game {
       } else if (t.def.mech === 'moon') {
         if (t.level === 1) t.orbT = Math.min(t.orbT, 0.5);
         else t.eclipseT = Math.min(t.eclipseT, 0.5);
+      } else if (t.def.mech === 'oni') {
+        if (t.level === 1) t.breathT = Math.min(t.breathT, 0.5);
+        else t.beastT = Math.min(t.beastT, 0.9);
       }
     }
     this.emit('upgrade', { tower: t, learn });
@@ -471,6 +482,8 @@ class Game {
       this.updateTraps(dt);
       this.updateWaves(dt);
       this.updateOrbs(dt);
+      this.updateSouls(dt);
+      this.updateBeasts(dt);
     } else if (this.phase === 'build') {
       for (const t of this.towers) {
         t.recoil = Math.max(0, t.recoil - dt * 4);
@@ -631,6 +644,7 @@ class Game {
         case 'lord': this.runLord(t, dt); continue;
         case 'blade': this.runBlade(t, dt); continue;
         case 'moon': this.runMoon(t, dt); continue;
+        case 'oni': this.runOni(t, dt); continue;
       }
       if (t.burst > 0) {
         t.burstT -= dt;
@@ -1406,7 +1420,8 @@ class Game {
     } else {
       /* 초승달 검기: 낫이 앞을 지나는 순간 떠나, 곧게 날아가며 지나는 적을 모두 벤다 */
       this.waves.push({
-        x: t.cx, y: t.cy, a: t.mid, d: 0.25, max: t.range + 0.35, wait: MOON_WAVE_AT, hit: [],
+        skin: 'moon', x: t.cx, y: t.cy, a: t.mid, d: 0.25, max: t.range + 0.35, wait: MOON_WAVE_AT, hit: [],
+        speed: MOON_WAVE_SPEED, half: MOON_WAVE_HALF,
         src: t, fx: { dmg: lv.dmg, dtype: 'magic' }, flip: step === 1, level: t.level, seed: this.rand(),
       });
     }
@@ -1420,7 +1435,7 @@ class Game {
     for (const w of list) {
       if (w.wait > 0) { w.wait -= dt; continue; }
       const prev = w.d;
-      w.d = Math.min(w.max, w.d + MOON_WAVE_SPEED * dt);
+      w.d = Math.min(w.max, w.d + w.speed * dt);
       const cx = Math.cos(w.a);
       const sy = Math.sin(w.a);
       for (const e of this.enemies) {
@@ -1429,10 +1444,10 @@ class Game {
         const ry = e.y - w.y;
         const along = rx * cx + ry * sy;
         if (along < prev - 0.35 || along > w.d + e.r * 0.5) continue;
-        if (Math.abs(ry * cx - rx * sy) > MOON_WAVE_HALF + e.r * 0.5) continue;
+        if (Math.abs(ry * cx - rx * sy) > w.half + e.r * 0.5) continue;
         w.hit.push(e);
         this.strike(e, w.src, w.fx, 1);
-        this.emit('hit', { kind: 'slash', skin: 'void', x: e.x, y: e.y });
+        this.emit('hit', { kind: 'slash', skin: w.skin === 'oni' ? 'oni' : 'void', x: e.x, y: e.y });
       }
     }
     this.waves = list.filter((w) => w.d < w.max);
@@ -1470,6 +1485,216 @@ class Game {
       }
     }
     this.orbs = list.filter((o) => !o.dead);
+  }
+
+  /* ───── 야차(영웅) ─────
+     손톱을 휘둘러 땅을 가르는 귀참을 날린다. 귀참은 겨눈 쪽으로 곧게 달려가며 지나는 적을 모두 벤다.
+     세 번째 공격으로는 적을 쫓아가는 혼불을 여럿 푼다. 2단부터는 일직선의 적을 모두 태우는 귀염포를 내뿜고,
+     3단에서는 큰 귀신으로 변신해, 길을 따라 달려가 들이받고 터지는 귀수를 부른다. */
+  runOni(t, dt) {
+    const lv = t.lv;
+    if (t.cast > 0) t.cast = Math.max(0, t.cast - dt);
+    if (t.cd > 0) t.cd -= dt;
+    if (t.breathT > 0) t.breathT -= dt;
+    if (t.beastT > 0) t.beastT -= dt;
+    if (t.slash) {
+      t.slash.t += dt;
+      if (t.slash.t >= t.slash.dur) t.slash = null;
+    }
+    /* 혼불: 두 손을 내뻗는 순간 풀려난다 */
+    if (t.soulPending && (!t.slash || t.slash.t >= t.slash.dur * 0.45)) {
+      t.soulPending = false;
+      const r2 = (t.range + 0.5) ** 2;
+      const pool = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2).sort((a, b) => b.hp - a.hp);
+      for (let i = 0; i < lv.souls && pool.length; i++) {
+        const spread = (i - (lv.souls - 1) / 2) * 0.55;
+        this.souls.push({
+          x: t.cx, y: t.cy, a: t.mid + spread, target: pool[i % pool.length], t: 0, life: 3,
+          src: t, fx: { dmg: lv.soul, dtype: 'magic' }, seed: this.rand(),
+        });
+      }
+      this.emit('shoot', { kind: 'souls', tower: t });
+    }
+    /* 귀염포: 기를 모았다가 내뿜는다. 내뿜는 동안 줄기 안의 적을 계속 태운다 */
+    if (t.breathAim != null && t.cast <= t.castDur - ONI_BREATH_WIND) {
+      t.breath = { a: t.breathAim, t: 0, dur: ONI_BREATH_TIME, tick: 0, len: t.range * ONI_BREATH_REACH };
+      t.breathAim = null;
+      this.emit('shoot', { kind: 'breath', tower: t });
+    }
+    if (t.breath) {
+      const b = t.breath;
+      b.t += dt;
+      b.tick -= dt;
+      t.recoil = 1;
+      t.flash = 1;
+      if (b.tick <= 0) {
+        b.tick += 0.1;
+        const cx = Math.cos(b.a);
+        const sy = Math.sin(b.a);
+        const fx = { dmg: (lv.breath * 0.1) / b.dur, dtype: 'magic' };
+        for (const e of this.enemies) {
+          if (!e.alive) continue;
+          const rx = e.x - t.cx;
+          const ry = e.y - t.cy;
+          const along = rx * cx + ry * sy;
+          if (along < 0.2 || along > b.len + e.r * 0.5) continue;
+          if (Math.abs(ry * cx - rx * sy) > ONI_BREATH_HALF + e.r * 0.5) continue;
+          this.strike(e, t, fx, 1);
+          this.emit('hit', { kind: 'sear', skin: 'oni', x: e.x, y: e.y });
+        }
+      }
+      if (b.t >= b.dur) t.breath = null;
+    }
+    /* 귀수: 포효하는 순간 길 위에 나타나 달리기 시작한다 */
+    if (t.beastPending && t.cast <= t.castDur * 0.5) {
+      t.beastPending = false;
+      this.summonBeast(t);
+    }
+    const target = this.pickTarget(t);
+    t.idle = !target;
+    if (!target) return;
+    if (!t.slash && !t.breath && t.cast <= 0) {
+      t.aimX = target.x;
+      t.aimY = target.y;
+      t.mid = Math.atan2(target.y - t.cy, target.x - t.cx);
+    }
+    if (t.cast > 0 || t.slash) return; /* 하던 몸짓과 공격이 끝날 때까지는 새로 시작하지 않는다 */
+    const r2 = t.range * t.range;
+    const near = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2);
+    if (lv.beast && t.beastT <= 0 && near.length) {
+      t.beastT = ONI_BEAST_EVERY;
+      this.lordGesture(t, 'beast', 0.9);
+      t.beastPending = true;
+      this.emit('cast', { kind: 'beast', tower: t });
+      return;
+    }
+    if (lv.breath && t.breathT <= 0 && near.length) {
+      /* 가장 센 적을 꿰뚫는 쪽으로 내뿜는다 */
+      const e = near.reduce((a, b) => (b.hp > a.hp ? b : a));
+      t.breathT = ONI_BREATH_EVERY;
+      this.lordGesture(t, 'breath', ONI_BREATH_WIND + ONI_BREATH_TIME + 0.15);
+      t.breathAim = Math.atan2(e.y - t.cy, e.x - t.cx);
+      t.mid = t.breathAim;
+      t.aimX = e.x;
+      t.aimY = e.y;
+      this.emit('cast', { kind: 'breath', tower: t });
+      return;
+    }
+    if (t.cd > 0) return;
+    const step = t.combo;
+    const volley = step === 2;
+    t.combo = (step + 1) % 3;
+    t.cd = (lv.cd * (volley ? ONI_REST : 1)) / t.haste;
+    t.recoil = 1;
+    t.flash = 1;
+    t.slash = { t: 0, dur: volley ? ONI_VOLLEY : ONI_SWING, step, a: t.mid };
+    if (volley) {
+      t.soulPending = true;
+    } else {
+      /* 귀참: 손톱이 앞을 지나는 순간 떠나, 땅을 가르며 곧게 달려간다 */
+      this.waves.push({
+        skin: 'oni', x: t.cx, y: t.cy, a: t.mid, d: 0.25, max: t.range + 0.35, wait: ONI_WAVE_AT, hit: [],
+        speed: ONI_WAVE_SPEED, half: ONI_WAVE_HALF,
+        src: t, fx: { dmg: lv.dmg, dtype: 'magic' }, flip: step === 1, level: t.level, seed: this.rand(),
+      });
+    }
+    this.emit('shoot', { kind: 'oni', step, tower: t });
+  }
+
+  /* 혼불: 풀려난 쪽으로 퍼졌다가 휘어 들며 적을 쫓는다. 쫓던 적이 죽으면 가까운 다른 적으로 옮겨 간다 */
+  updateSouls(dt) {
+    const list = this.souls;
+    if (!list.length) return;
+    for (const s of list) {
+      s.t += dt;
+      if (!s.target || !s.target.alive) {
+        let best = null;
+        let bd = 9;
+        for (const e of this.enemies) {
+          if (!e.alive) continue;
+          const d = (e.x - s.x) ** 2 + (e.y - s.y) ** 2;
+          if (d < bd) { bd = d; best = e; }
+        }
+        s.target = best;
+      }
+      if (!s.target || s.t > s.life) { s.dead = true; continue; }
+      const e = s.target;
+      const want = Math.atan2(e.y - s.y, e.x - s.x);
+      let diff = want - s.a;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const turn = (3 + s.t * 14) * dt; /* 갈수록 날카롭게 꺾는다 */
+      s.a += Math.max(-turn, Math.min(turn, diff));
+      const step = ONI_SOUL_SPEED * (0.55 + Math.min(1, s.t * 2) * 0.45) * dt;
+      s.x += Math.cos(s.a) * step;
+      s.y += Math.sin(s.a) * step;
+      if ((e.x - s.x) ** 2 + (e.y - s.y) ** 2 <= (0.22 + e.r * 0.5) ** 2) {
+        s.dead = true;
+        this.strike(e, s.src, s.fx, 1);
+        this.emit('hit', { kind: 'soul', skin: 'oni', x: e.x, y: e.y });
+        this.emit('burst', { kind: 'soul', x: e.x, y: e.y, r: 0.4 });
+      }
+    }
+    this.souls = list.filter((s) => !s.dead);
+  }
+
+  /* 귀수를 부른다: 영웅에게서 가장 가까운 길 위, 성문 쪽으로 조금 나간 자리에서 나타나 적이 오는 쪽으로 달린다 */
+  summonBeast(t) {
+    const lv = t.lv;
+    let best = null;
+    const p = {};
+    for (const path of this.paths) {
+      for (let d = 0; d <= path.length; d += 0.25) {
+        path.at(d, p);
+        const q = (p.x - t.cx) ** 2 + (p.y - t.cy) ** 2;
+        if (!best || q < best.q) best = { q, path, d };
+      }
+    }
+    if (!best) return;
+    const from = Math.min(best.path.length, best.d + ONI_BEAST_AHEAD);
+    const b = {
+      path: best.path, d: from, end: Math.max(0, from - ONI_BEAST_RUN), x: 0, y: 0, dx: 0, dy: 0, t: 0, hit: [],
+      src: t, fx: { dmg: lv.beast, dtype: 'magic', stun: 0.5 }, boom: lv.beast * 0.8, seed: this.rand(),
+    };
+    best.path.at(b.d, p);
+    b.x = p.x;
+    b.y = p.y;
+    this.beasts.push(b);
+    this.emit('burst', { kind: 'beast', x: b.x, y: b.y, r: 1 });
+  }
+
+  /* 귀수: 길을 거슬러 달리며 닿는 적을 한 번씩 들이받고, 다 달리면 터진다 */
+  updateBeasts(dt) {
+    const list = this.beasts;
+    if (!list.length) return;
+    const p = {};
+    for (const b of list) {
+      b.t += dt;
+      const px = b.x;
+      const py = b.y;
+      b.d = Math.max(b.end, b.d - ONI_BEAST_SPEED * dt);
+      b.path.at(b.d, p);
+      b.x = p.x;
+      b.y = p.y;
+      if (b.x !== px || b.y !== py) {
+        const n = Math.hypot(b.x - px, b.y - py);
+        b.dx = (b.x - px) / n;
+        b.dy = (b.y - py) / n;
+      }
+      for (const e of this.enemies) {
+        if (!e.alive || b.hit.includes(e)) continue;
+        if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 > (ONI_BEAST_HALF + e.r * 0.5) ** 2) continue;
+        b.hit.push(e);
+        this.strike(e, b.src, b.fx, 1);
+        this.emit('hit', { kind: 'slash', skin: 'oni', x: e.x, y: e.y });
+      }
+      if (b.d <= b.end) {
+        b.dead = true;
+        this.blast(b.x, b.y, ONI_BEAST_R, b.src, { dmg: b.boom, dtype: 'magic' });
+        this.emit('burst', { kind: 'beastboom', x: b.x, y: b.y, r: ONI_BEAST_R });
+      }
+    }
+    this.beasts = list.filter((b) => !b.dead);
   }
 
   /* 홍련의 기술이 닿는 적들: 센 적부터 */

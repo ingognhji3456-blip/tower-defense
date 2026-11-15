@@ -203,6 +203,16 @@
         ['거리', (l) => f1(l.range)],
       ];
     }
+    if (def.mech === 'oni') {
+      return [
+        ['귀참', (l) => f1(l.dmg)],
+        ['혼불', (l) => l.souls + '×' + f1(l.soul)],
+        ['귀염포', (l) => (l.breath ? f1(l.breath) : '—')],
+        ['귀수', (l) => (l.beast ? f1(l.beast) : '—')],
+        ['연사', (l) => f1(1 / l.cd)],
+        ['거리', (l) => f1(l.range)],
+      ];
+    }
     if (def.mech === 'moon') {
       return [
         ['검기', (l) => f1(l.dmg)],

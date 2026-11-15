@@ -64,6 +64,9 @@ function power(game, type, level, mix) {
     case 'lord':
       return (lv.dmg / lv.cd) * 3 + (lv.shock * 2.5) / LORD_SHOCK_EVERY
         + ((lv.pillar || 0) * (lv.pillars || 1) * 2.5) / LORD_PILLAR_EVERY + ((lv.meteor || 0) * (lv.meteors || 0) * 2) / LORD_METEOR_EVERY;
+    case 'oni':
+      return ((lv.dmg * 2 * 2.2 + lv.soul * lv.souls) / (lv.cd * (2 + ONI_REST)))
+        + ((lv.breath || 0) * 2.5) / ONI_BREATH_EVERY + ((lv.beast || 0) * 4) / ONI_BEAST_EVERY;
     case 'moon':
       return ((lv.dmg * (2 + lv.finish)) / (lv.cd * (2 + MOON_REST))) * 2.2
         + (((lv.orb || 0) + (lv.orbDps || 0) * MOON_ORB_HOLD) * 2.5) / MOON_ORB_EVERY + ((lv.eclipse || 0) * 1.8) / MOON_ECLIPSE_EVERY;
@@ -255,6 +258,7 @@ if (process.argv.includes('--tune')) {
     '화염파 포함(석궁·대포·서리·번개·화염파)': ['crossbow', 'cannon', 'frost', 'tesla', 'lord'],
     '홍련 포함(석궁·대포·서리·번개·홍련)': ['crossbow', 'cannon', 'frost', 'tesla', 'blade'],
     '자월 포함(석궁·대포·서리·번개·자월)': ['crossbow', 'cannon', 'frost', 'tesla', 'moon'],
+    '야차 포함(석궁·대포·서리·번개·야차)': ['crossbow', 'cannon', 'frost', 'tesla', 'oni'],
   };
   for (const [name, loadout] of Object.entries(SETS)) {
     const ranks = name.includes('+3') ? Object.fromEntries(loadout.map((t) => [t, 3])) : {};
