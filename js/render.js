@@ -1218,7 +1218,7 @@ class Renderer {
       const n = Math.hypot(ox, oy);
       const tx = (ox / n) * ts;
       const ty = (oy / n) * ts;
-      for (const [w, len, color] of [[0.5, 1.9, 'rgba(255,104,24,.35)'], [0.3, 1.4, 'rgba(255,170,60,.8)'], [0.14, 0.9, 'rgba(255,241,168,.95)']]) {
+      for (const [w, len, color] of [[0.5, 1.5, ART.OUT], [0.41, 1.5, '#e8552a'], [0.28, 1.25, '#ffa238'], [0.14, 0.9, '#fff1a8']]) {
         ctx.strokeStyle = color;
         ctx.lineWidth = ts * w * big;
         ctx.beginPath();
@@ -1227,9 +1227,12 @@ class Renderer {
         ctx.stroke();
       }
       ctx.fillStyle = '#ff9226';
+      ctx.strokeStyle = ART.OUT;
+      ctx.lineWidth = Math.max(1.5, ts * 0.05);
       ctx.beginPath();
       ctx.arc(mx, my, ts * 0.26 * big, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = '#fff6cf';
       ctx.beginPath();
       ctx.arc(mx - tx * 0.04, my - ty * 0.04, ts * 0.15 * big, 0, Math.PI * 2);
@@ -1296,7 +1299,17 @@ class Renderer {
       const h = ts * (sword ? 2.1 : 3.1) * up;
       const wob = Math.sin(t * 40 + c.x * 7) * w * 0.08;
       const pal = c.pal === 'oni' ? ['216,27,79', '255,79,154', '255,226,236', '255,194,220'] : ['255,104,24', '255,170,60', '255,246,207', '255,216,143'];
-      for (const [f, color] of [[1, `rgba(${pal[0]},${0.55 * k})`], [0.66, `rgba(${pal[1]},${0.85 * k})`], [0.34, `rgba(${pal[2]},${0.95 * k})`]]) {
+      ctx.globalAlpha = Math.min(1, k * 2.5);
+      /* 밑동의 불빛 */
+      ctx.fillStyle = `rgb(${pal[3]})`;
+      ctx.strokeStyle = ART.OUT;
+      ctx.lineWidth = Math.max(1.5, ts * 0.05);
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.ellipse(x, y, w * 1.25, w * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      for (const [f, color] of [[1, `rgb(${pal[0]})`], [0.66, `rgb(${pal[1]})`], [0.34, `rgb(${pal[2]})`]]) {
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.moveTo(x - w * f, y);
@@ -1304,12 +1317,10 @@ class Renderer {
         ctx.quadraticCurveTo(x + wob * 0.5, y - h * (1.02 + 0.1 * f), x + w * f * 0.3, y - h * (0.8 + 0.2 * f));
         ctx.quadraticCurveTo(x + w * f * 0.9 + wob, y - h * 0.55, x + w * f, y);
         ctx.closePath();
+        if (f === 1) ctx.stroke();
         ctx.fill();
       }
-      ctx.fillStyle = `rgba(${pal[3]},${0.6 * k})`;
-      ctx.beginPath();
-      ctx.ellipse(x, y, w * 1.25, w * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.globalAlpha = 1;
       if (sword) this.flameSword(ctx, x, y, Math.min(1, k * 1.8), t); /* 땅에 꽂힌 검이 불길 속에서 사라진다 */
     }
     this.columns.length = n;
@@ -1322,7 +1333,10 @@ class Renderer {
     const hw = ts * 0.11;
     ctx.globalAlpha = alpha;
     /* 칼을 감싼 불길 */
-    for (const [f, color] of [[1.9, 'rgba(232,85,42,.55)'], [1.35, 'rgba(255,150,40,.8)']]) {
+    ctx.strokeStyle = ART.OUT;
+    ctx.lineWidth = Math.max(1.5, ts * 0.05);
+    ctx.lineJoin = 'round';
+    for (const [f, color] of [[1.9, '#e8552a'], [1.35, '#ff9a2e']]) {
       const wob = Math.sin(t * 30 + x * 0.05) * hw * 0.3;
       ctx.fillStyle = color;
       ctx.beginPath();
@@ -1330,6 +1344,8 @@ class Renderer {
       ctx.quadraticCurveTo(x - hw * f * 1.4, y - len * 0.5, x - hw * f * 0.5 + wob, y - len * 1.25);
       ctx.quadraticCurveTo(x + wob * 0.5, y - len * (1.3 + 0.12 * f), x + hw * f * 0.5 + wob, y - len * 1.2);
       ctx.quadraticCurveTo(x + hw * f * 1.4, y - len * 0.5, x, y + ts * 0.06);
+      ctx.closePath();
+      if (f === 1.9) ctx.stroke();
       ctx.fill();
     }
     /* 날, 코등이, 손잡이 */
@@ -1373,43 +1389,60 @@ class Renderer {
     const span = a1 - a0;
     const n = Math.max(6, Math.ceil(Math.abs(span) / 0.14));
     const lift = ts * 0.2;
-    const pt = (a, r) => [this.px(cx + Math.cos(a) * r, cy + Math.sin(a) * r), this.py(cx + Math.cos(a) * r, cy + Math.sin(a) * r) - lift];
-    /* 두께: 머리 가까이가 가장 두껍다 */
+    const pt = (a, r, dy) => [this.px(cx + Math.cos(a) * r, cy + Math.sin(a) * r), this.py(cx + Math.cos(a) * r, cy + Math.sin(a) * r) - lift + dy];
+    /* 두께: 머리 가까이가 가장 두껍다 (양 끝이 고른 초승달은 한가운데가 두껍다) */
     const prof = sym ? (f) => Math.pow(Math.sin(Math.PI * f), 0.75) : (f) => Math.sin(Math.PI * Math.pow(f, 1.45));
-    const layer = (out, th, color, ragged) => {
+    const trace = (out, th, ragged, dy) => {
       ctx.beginPath();
       for (let i = 0; i <= n; i++) {
-        const p = pt(a0 + (span * i) / n, R + out);
+        const p = pt(a0 + (span * i) / n, R + out, dy);
         if (i) ctx.lineTo(p[0], p[1]);
         else ctx.moveTo(p[0], p[1]);
       }
       for (let i = n; i >= 0; i--) {
         const f = i / n;
         const wob = ragged ? 1 + 0.28 * Math.sin(i * 2.9 + seed * 20) * Math.sin(f * Math.PI) : 1;
-        const p = pt(a0 + span * f, R + out - th * prof(f) * wob);
+        const p = pt(a0 + span * f, R + out - th * prof(f) * wob, dy);
         ctx.lineTo(p[0], p[1]);
       }
       ctx.closePath();
-      ctx.fillStyle = color;
-      ctx.fill();
     };
-    layer(0.05, thick * 1.5, `rgba(${c[0]},${0.5 * alpha})`, true); /* 뒤에 끌리는 짙은 빛 */
-    layer(0.03, thick, `rgba(${c[1]},${0.88 * alpha})`, true);
-    layer(0, thick * 0.62, `rgba(${c[2]},${0.95 * alpha})`, false);
-    layer(-0.015, thick * 0.3, `rgba(${c[3]},${alpha})`, false);
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.lineJoin = 'round';
+    /* 땅에 지는 그림자 */
+    trace(0.05, thick * 1.5, true, lift * 1.1);
+    ctx.fillStyle = 'rgba(22,40,24,.2)';
+    ctx.fill();
+    /* 굵은 윤곽을 두른 바깥 층: 뒤에 끌리는 짙은 빛 */
+    trace(0.05, thick * 1.5, true, 0);
+    ctx.strokeStyle = ART.OUT;
+    ctx.lineWidth = Math.max(1.5, ts * 0.055);
+    ctx.stroke();
+    ctx.fillStyle = `rgb(${c[0]})`;
+    ctx.fill();
+    trace(0.03, thick, true, 0);
+    ctx.fillStyle = `rgb(${c[1]})`;
+    ctx.fill();
+    trace(0, thick * 0.62, false, 0);
+    ctx.fillStyle = `rgb(${c[2]})`;
+    ctx.fill();
+    trace(-0.015, thick * 0.3, false, 0);
+    ctx.fillStyle = `rgb(${c[3]})`;
+    ctx.fill();
     /* 가장 뜨거운 바깥 날 */
-    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = Math.max(1, ts * 0.045);
     ctx.lineCap = 'round';
     ctx.beginPath();
     const from = Math.floor(n * (sym ? 0.2 : 0.35));
     const to = sym ? Math.ceil(n * 0.8) : n;
     for (let i = from; i <= to; i++) {
-      const p = pt(a0 + (span * i) / n, R + 0.01);
+      const p = pt(a0 + (span * i) / n, R + 0.01, 0);
       if (i === from) ctx.moveTo(p[0], p[1]);
       else ctx.lineTo(p[0], p[1]);
     }
     ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   /* 홍련의 검기와 십자 베기 자국 */
@@ -1502,7 +1535,11 @@ class Renderer {
         const y0 = y - uy * L * 0.5;
         const x1 = x0 + ux * L * g;
         const y1 = y0 + uy * L * g;
-        for (const [w, color] of [[0.34, `rgba(122,26,14,${0.5 * fade})`], [0.24, `rgba(232,85,42,${0.9 * fade})`], [0.15, `rgba(255,170,60,${fade})`], [0.07, `rgba(255,246,207,${fade})`]]) {
+        ctx.globalAlpha = fade;
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = Math.max(1.5, ts * 0.05);
+        ctx.lineJoin = 'round';
+        for (const [w, color] of [[0.34, '#7a1a0e'], [0.24, '#e8552a'], [0.15, '#ffaa3c'], [0.07, '#fff6cf']]) {
           const hw = ts * w * 0.5;
           ctx.fillStyle = color;
           ctx.beginPath();
@@ -1511,8 +1548,10 @@ class Renderer {
           ctx.lineTo(x1, y1);
           ctx.lineTo((x0 + x1) / 2 + uy * hw, (y0 + y1) / 2 - ux * hw);
           ctx.closePath();
+          if (w === 0.34) ctx.stroke();
           ctx.fill();
         }
+        ctx.globalAlpha = 1;
         /* 칼자국을 따라 솟는 불길 */
         for (let i = 0; i < 4; i++) {
           const f = (i + 0.5) / 4;
@@ -1609,16 +1648,21 @@ class Renderer {
     const w = c.r * ts * (0.72 + 0.22 * k);
     const h = ts * 7.5 * up;
     /* 양옆에서 피어오르는 검보라 연기 */
-    for (let i = 0; i < 10; i++) {
-      const side = i % 2 ? 1 : -1;
-      const f = (t * 0.8 + i * 0.37 + c.seed) % 1;
-      const bx = x + side * w * (0.95 + 0.35 * Math.sin(i * 1.7 + c.seed * 9)) + side * f * ts * 0.25;
-      const by = y - f * h * 0.85;
-      ctx.fillStyle = `rgba(${i % 3 ? '42,15,74' : '86,60,130'},${0.8 * fade * (1 - f * 0.5)})`;
-      ctx.beginPath();
-      ctx.arc(bx, by, ts * (0.2 + 0.26 * (1 - f)), 0, Math.PI * 2);
-      ctx.fill();
+    ctx.globalAlpha = fade;
+    for (const pass of [0, 1]) {
+      /* 먼저 윤곽 빛깔로 조금 크게 깔고, 그 위에 제 빛깔로 덮는다: 뭉친 연기 전체에 테두리가 둘린다 */
+      for (let i = 0; i < 10; i++) {
+        const side = i % 2 ? 1 : -1;
+        const f = (t * 0.8 + i * 0.37 + c.seed) % 1;
+        const bx = x + side * w * (0.95 + 0.35 * Math.sin(i * 1.7 + c.seed * 9)) + side * f * ts * 0.25;
+        const by = y - f * h * 0.85;
+        ctx.fillStyle = pass ? (i % 3 ? '#3a1a66' : '#5a3c8a') : ART.OUT;
+        ctx.beginPath();
+        ctx.arc(bx, by, ts * (0.2 + 0.26 * (1 - f)) * (1 - f * 0.4) + (pass ? 0 : ts * 0.045), 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
+    ctx.globalAlpha = 1;
     /* 겹겹의 기둥: 가장자리가 불꽃처럼 들쭉날쭉하다 */
     const jag = (half, amp, color, ph) => {
       const n = 9;
@@ -1635,18 +1679,31 @@ class Renderer {
       }
       ctx.lineTo(x + half * 1.25, y);
       ctx.closePath();
+      if (ph === 0) {
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = Math.max(1.5, ts * 0.06);
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      }
       ctx.fillStyle = color;
       ctx.fill();
     };
-    jag(w * 1.12, ts * 0.13, `rgba(142,45,226,${0.85 * fade})`, 0);
-    jag(w * 0.84, ts * 0.11, `rgba(224,64,251,${0.95 * fade})`, 1.3);
-    jag(w * 0.52, ts * 0.1, `rgba(248,183,255,${fade})`, 2.1);
-    jag(w * 0.27, ts * 0.085, `rgba(255,255,255,${fade})`, 3.7);
+    ctx.globalAlpha = fade;
+    jag(w * 1.12, ts * 0.13, '#8e2de2', 0);
+    jag(w * 0.84, ts * 0.11, '#e040fb', 1.3);
+    jag(w * 0.52, ts * 0.1, '#f8b7ff', 2.1);
+    jag(w * 0.27, ts * 0.085, '#ffffff', 3.7);
+    ctx.globalAlpha = 1;
     /* 밑동: 땅에서 터져 나오는 빛과 사방으로 뻗는 가시 */
-    ctx.fillStyle = `rgba(248,183,255,${0.75 * fade})`;
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#f8b7ff';
+    ctx.strokeStyle = ART.OUT;
+    ctx.lineWidth = Math.max(1.5, ts * 0.05);
     ctx.beginPath();
-    ctx.ellipse(x, y, w * 1.7, w * 0.62, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y, w * 1.5, w * 0.55, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = `rgba(255,255,255,${fade})`;
     for (let i = 0; i < 9; i++) {
       const a = Math.PI + ((i + 0.5) / 9) * Math.PI; /* 위쪽 반원으로 */
@@ -1674,10 +1731,6 @@ class Renderer {
       const tail = s.a + Math.PI + Math.PI * 2 * Math.max(0, (k - 0.3) / 0.7) ** 2;
       const fade = Math.min(1, (1 - k) * 3 + 0.1);
       const R = tw.lv.ring;
-      ctx.fillStyle = `rgba(42,15,74,${0.24 * fade})`;
-      ctx.beginPath();
-      ctx.arc(this.px(tw.cx, tw.cy), this.py(tw.cx, tw.cy), R * ts, 0, Math.PI * 2);
-      ctx.fill();
       this.crescent(ctx, tw.cx, tw.cy, tail, head, R, 0.52 * (1 + tw.level * 0.2), fade, tw.id, VIOLET_ARC);
       this.crescent(ctx, tw.cx, tw.cy, tail + 0.4, head - 0.6, R * 0.58, 0.24 * (1 + tw.level * 0.2), fade * 0.8, tw.id + 2, VIOLET_ARC);
     }
@@ -1716,7 +1769,7 @@ class Renderer {
           ctx.fill();
         }
       }
-      for (const [back, a, th] of [[0.75, 0.22, 0.7], [0.38, 0.45, 0.85], [0, 1, 1]]) {
+      for (const [back, a, th] of [[0.45, 0.45, 0.8], [0, 1, 1]]) {
         if (w.d - back < 0.3) continue;
         const c0 = mid(w.d - back);
         this.crescent(ctx, c0[0], c0[1], w.a + lean - half, w.a + lean + half, R0, 0.44 * grow * th, fade * a, w.seed * 9, VIOLET_MOON);
@@ -1826,15 +1879,21 @@ class Renderer {
         const r0 = R * (0.3 + k * 0.9);
         const len = R * (0.75 + 0.35 * Math.sin(i * 2.3 + c.seed * 9)) * (1 - k * 0.4);
         const hw = R * 0.1 * (1 - k * 0.6);
-        for (const [q, color] of [[1, `rgba(142,45,226,${0.9 * fade})`], [0.55, `rgba(248,183,255,${fade})`]]) {
+        ctx.globalAlpha = fade;
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = Math.max(1.5, ts * 0.045);
+        ctx.lineJoin = 'round';
+        for (const [q, color] of [[1, '#8e2de2'], [0.55, '#f8b7ff']]) {
           ctx.fillStyle = color;
           ctx.beginPath();
           ctx.moveTo(x + Math.cos(a) * r0 - Math.sin(a) * hw * q, y + Math.sin(a) * r0 + Math.cos(a) * hw * q);
           ctx.lineTo(x + Math.cos(a) * (r0 + len * (0.6 + 0.4 * q)), y + Math.sin(a) * (r0 + len * (0.6 + 0.4 * q)));
           ctx.lineTo(x + Math.cos(a) * r0 + Math.sin(a) * hw * q, y + Math.sin(a) * r0 - Math.cos(a) * hw * q);
           ctx.closePath();
+          if (q === 1) ctx.stroke();
           ctx.fill();
         }
+        ctx.globalAlpha = 1;
       }
     }
     this.bites.length = n;
@@ -1868,11 +1927,14 @@ class Renderer {
         ctx.quadraticCurveTo(bx + ox - hw * 0.4, by - hgt * 0.62, tx, ty);
         ctx.quadraticCurveTo(bx + ox * 0.4 + hw * 0.5, by - hgt * 0.5, bx + hw, by);
         ctx.closePath();
-        ctx.fillStyle = Math.sin(a) > 0 ? '#3a1466' : '#2a0f4a';
-        ctx.fill();
-        ctx.strokeStyle = '#e040fb';
-        ctx.lineWidth = Math.max(1, ts * 0.04);
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = Math.max(2, ts * 0.11);
         ctx.stroke();
+        ctx.strokeStyle = '#e040fb';
+        ctx.lineWidth = Math.max(1, ts * 0.045);
+        ctx.stroke();
+        ctx.fillStyle = Math.sin(a) > 0 ? '#4a1c80' : '#34125c';
+        ctx.fill();
         ctx.strokeStyle = 'rgba(248,183,255,.9)';
         ctx.lineWidth = Math.max(1, ts * 0.022);
         ctx.beginPath();
@@ -1958,28 +2020,32 @@ class Renderer {
       const uy = by / d;
       const r = ts * 0.17;
       const wag = Math.sin(t * 18 + s.seed * 20) * r * 0.5;
-      const g = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 2.4);
-      g.addColorStop(0, 'rgba(255,79,154,.55)');
-      g.addColorStop(1, 'rgba(255,79,154,0)');
-      ctx.fillStyle = g;
+      /* 땅에 지는 그림자 */
+      ctx.fillStyle = 'rgba(22,40,24,.22)';
       ctx.beginPath();
-      ctx.arc(x, y, r * 2.4, 0, Math.PI * 2);
+      ctx.ellipse(this.px(s.x, s.y), this.py(s.x, s.y), r * 1.1, r * 0.45, 0, 0, Math.PI * 2);
       ctx.fill();
-      for (const [q, color] of [[1, 'rgba(216,27,79,.95)'], [0.6, 'rgba(255,79,154,.95)'], [0.3, 'rgba(255,226,236,.95)']]) {
+      ctx.strokeStyle = ART.OUT;
+      ctx.lineWidth = Math.max(1.5, ts * 0.05);
+      for (const [q, color] of [[1, '#d81b4f'], [0.6, '#ff4f9a'], [0.3, '#ffe2ec']]) {
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.moveTo(x - uy * r * q, y + ux * r * q);
         ctx.quadraticCurveTo(x + ux * d * 0.5 - uy * wag, y + uy * d * 0.5 + ux * wag, x + ux * d * (0.6 + 0.4 * q), y + uy * d * (0.6 + 0.4 * q));
         ctx.quadraticCurveTo(x + ux * d * 0.5 - uy * wag, y + uy * d * 0.5 + ux * wag, x + uy * r * q, y - ux * r * q);
         ctx.closePath();
+        if (q === 1) ctx.stroke();
         ctx.fill();
       }
       ctx.fillStyle = '#33091a';
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
       ctx.strokeStyle = '#ff4f9a';
-      ctx.lineWidth = Math.max(1, ts * 0.045);
+      ctx.lineWidth = Math.max(1, ts * 0.035);
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.78, 0, Math.PI * 2);
       ctx.stroke();
       /* 치켜뜬 두 눈과 벌린 입 */
       ctx.fillStyle = '#ffffff';
@@ -2017,16 +2083,26 @@ class Renderer {
       const ny = dx / d;
       const wide = ts * 0.52 * grow * env;
       /* 가장자리에서 끓어오르는 검붉은 방울 */
-      ctx.fillStyle = `rgba(74,8,30,${0.9 * Math.min(1, env * 1.4)})`;
-      for (let i = 0; i < 16; i++) {
-        const f = ((i * 0.618 + t * 1.6) % 1);
-        const side = i % 2 ? 1 : -1;
-        const r = ts * (0.13 + 0.09 * Math.sin(i * 2.7 + t * 7)) * grow * env;
+      const ink = ts * 0.05;
+      for (const pass of [0, 1]) {
+        /* 윤곽 빛깔로 먼저 깔고 검붉은 빛으로 덮는다: 방울과 줄기가 한 덩어리로 테두리를 두른다 */
+        ctx.fillStyle = pass ? '#4a081e' : ART.OUT;
+        ctx.strokeStyle = pass ? '#4a081e' : ART.OUT;
+        for (let i = 0; i < 16; i++) {
+          const f = ((i * 0.618 + t * 1.6) % 1);
+          const side = i % 2 ? 1 : -1;
+          const r = ts * (0.13 + 0.09 * Math.sin(i * 2.7 + t * 7)) * grow * env;
+          ctx.beginPath();
+          ctx.arc(sx + dx * f + nx * side * wide * 0.95, sy + dy * f + ny * side * wide * 0.95, Math.max(0.5, r) + (pass ? 0 : ink), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.lineWidth = Math.max(1, wide * 2.0 + (pass ? 0 : ink * 2));
         ctx.beginPath();
-        ctx.arc(sx + dx * f + nx * side * wide * 0.95, sy + dy * f + ny * side * wide * 0.95, Math.max(0.5, r), 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
       }
-      for (const [w, color] of [[2.0, `rgba(74,8,30,${0.85 * Math.min(1, env * 1.3)})`], [1.6, 'rgba(216,27,79,.95)'], [1.1, 'rgba(255,79,154,.98)'], [0.62, 'rgba(255,214,230,1)'], [0.3, '#ffffff']]) {
+      for (const [w, color] of [[1.6, '#d81b4f'], [1.1, '#ff4f9a'], [0.62, '#ffd6e6'], [0.3, '#ffffff']]) {
         ctx.strokeStyle = color;
         ctx.lineWidth = Math.max(1, wide * w);
         ctx.beginPath();
@@ -2035,10 +2111,13 @@ class Renderer {
         ctx.stroke();
       }
       /* 줄기 끝에서 터지는 빛 */
-      ctx.fillStyle = `rgba(255,214,230,${0.9 * env})`;
+      ctx.fillStyle = '#ffd6e6';
+      ctx.strokeStyle = ART.OUT;
+      ctx.lineWidth = Math.max(1.5, ink);
       ctx.beginPath();
       ctx.arc(ex, ey, wide * 1.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = '#ffffff';
       for (let i = 0; i < 8; i++) {
         const a = (i * Math.PI) / 4 + t * 3;
@@ -2071,8 +2150,13 @@ class Renderer {
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = Math.max(1.5, ts * 0.05);
+        ctx.stroke();
         ctx.strokeStyle = '#d81b4f';
-        ctx.lineWidth = Math.max(1, ts * 0.05);
+        ctx.lineWidth = Math.max(1, ts * 0.04);
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
         ctx.stroke();
         /* 등줄기의 불꽃 */
         ctx.fillStyle = 'rgba(255,79,154,.9)';
@@ -2083,6 +2167,10 @@ class Renderer {
         ctx.closePath();
         ctx.fill();
       }
+      ctx.fillStyle = 'rgba(22,40,24,.26)';
+      ctx.beginPath();
+      ctx.ellipse(this.px(b.x, b.y), this.py(b.x, b.y) + ts * 0.18, ts * 0.6, ts * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
       const x = this.px(b.x, b.y);
       const y = this.py(b.x, b.y) - ts * (0.3 + 0.07 * Math.abs(Math.sin(t * 16)));
       const sdx = this.u(b.x + b.dx, b.y + b.dy) - this.u(b.x, b.y);
@@ -2102,22 +2190,31 @@ class Renderer {
       const x = this.px(c.x, c.y);
       const y = this.py(c.x, c.y) - ts * 0.2;
       const R = c.r * ts * (0.55 + 0.6 * Math.min(1, k * 2.4));
-      for (let i = 0; i < 11; i++) {
-        const a = (i / 11) * Math.PI * 2 + c.seed * 6;
-        const rr = R * (0.62 + 0.25 * Math.sin(i * 2.3 + c.seed * 9));
-        ctx.fillStyle = `rgba(${i % 3 ? '26,8,16' : '60,14,32'},${0.9 * fade})`;
-        ctx.beginPath();
-        ctx.arc(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.75 - k * ts * 0.4, R * (0.5 + 0.12 * Math.sin(i * 1.7)), 0, Math.PI * 2);
-        ctx.fill();
+      ctx.globalAlpha = fade;
+      for (const pass of [0, 1]) {
+        /* 윤곽 빛깔로 먼저 조금 크게 깔아, 뭉친 연기 전체에 테두리를 두른다 */
+        for (let i = 0; i < 11; i++) {
+          const a = (i / 11) * Math.PI * 2 + c.seed * 6;
+          const rr = R * (0.62 + 0.25 * Math.sin(i * 2.3 + c.seed * 9));
+          ctx.fillStyle = pass ? (i % 3 ? '#3a1220' : '#5a1a30') : ART.OUT;
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.75 - k * ts * 0.4, R * (0.5 + 0.12 * Math.sin(i * 1.7)) + (pass ? 0 : ts * 0.05), 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
-      ctx.fillStyle = `rgba(26,8,16,${0.9 * fade})`;
+      ctx.fillStyle = '#3a1220';
       ctx.beginPath();
       ctx.arc(x, y - k * ts * 0.4, R * 0.8, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalAlpha = 1;
       /* 한가운데의 불빛: 분홍 → 흰빛, 가시처럼 삐죽 솟는다 */
       const core = Math.max(0, 1 - k * 1.7);
       if (core > 0) {
-        for (const [f, color] of [[1, `rgba(255,79,154,${core})`], [0.62, `rgba(255,214,230,${core})`], [0.3, `rgba(255,255,255,${core})`]]) {
+        ctx.globalAlpha = Math.min(1, core * 2);
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = Math.max(1.5, ts * 0.05);
+        ctx.lineJoin = 'round';
+        for (const [f, color] of [[1, '#ff4f9a'], [0.62, '#ffd6e6'], [0.3, '#ffffff']]) {
           ctx.fillStyle = color;
           ctx.beginPath();
           for (let i = 0; i < 14; i++) {
@@ -2129,8 +2226,10 @@ class Renderer {
             else ctx.moveTo(px, py);
           }
           ctx.closePath();
+          if (f === 1) ctx.stroke();
           ctx.fill();
         }
+        ctx.globalAlpha = 1;
       }
     }
     this.booms.length = n;
@@ -2234,12 +2333,9 @@ class Renderer {
   /* 공허 구슬의 몸: 검은 구에 보랏빛 테두리가 돈다 */
   voidBall(ctx, x, y, r, t) {
     const ts = this.ts;
-    const g = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 2.1);
-    g.addColorStop(0, 'rgba(224,64,251,.55)');
-    g.addColorStop(1, 'rgba(224,64,251,0)');
-    ctx.fillStyle = g;
+    ctx.fillStyle = ART.OUT;
     ctx.beginPath();
-    ctx.arc(x, y, r * 2.1, 0, Math.PI * 2);
+    ctx.arc(x, y, r + ts * 0.085, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#160a26';
     ctx.beginPath();
@@ -2313,7 +2409,7 @@ class Renderer {
             life,
             max: life,
             size: 0.1 + Math.random() * 0.07,
-            fire: true,
+            tongue: true,
           });
         }
         if (this.particles.length > 500) this.particles.splice(0, this.particles.length - 500);
@@ -2358,9 +2454,9 @@ class Renderer {
       const my = (hands[0][1] + hands[1][1]) / 2;
       const wob = 0.9 + 0.1 * Math.sin(t * 60);
       ctx.lineCap = 'round';
-      for (const [width, color] of [[0.56, 'rgba(255,104,24,.3)'], [0.34, 'rgba(255,146,38,.85)'], [0.19, 'rgba(255,216,143,.97)'], [0.075, '#ffffff']]) {
+      for (const [width, color, pad] of [[0.44, ART.OUT, 0.09], [0.44, '#e8552a', 0], [0.31, '#ff9a2e', 0], [0.19, '#ffd88f', 0], [0.075, '#ffffff', 0]]) {
         ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(1, ts * width * grow * env * wob);
+        ctx.lineWidth = Math.max(1, ts * (width * grow * env * wob + pad));
         ctx.beginPath();
         for (const h of hands) {
           ctx.moveTo(ox + h[0] * ts, oy + h[1] * ts);
@@ -2369,10 +2465,13 @@ class Renderer {
         ctx.stroke();
       }
       /* 광선 끝의 불덩이 */
-      ctx.fillStyle = `rgba(255,170,60,${0.7 * env})`;
+      ctx.fillStyle = '#ff9a2e';
+      ctx.strokeStyle = ART.OUT;
+      ctx.lineWidth = Math.max(1.5, ts * 0.05);
       ctx.beginPath();
       ctx.arc(ex, ey, ts * 0.3 * grow * env * wob, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.arc(ex, ey, ts * 0.11 * grow * env, 0, Math.PI * 2);
@@ -2396,7 +2495,7 @@ class Renderer {
             life,
             max: life,
             size: (0.08 + Math.random() * 0.07) * (0.8 + tw.level * 0.15),
-            fire: true,
+            tongue: true,
           });
         }
         if (this.particles.length > 500) this.particles.splice(0, this.particles.length - 500);
@@ -2558,7 +2657,7 @@ class Renderer {
       const k = 1 - r.life / r.max;
       const px = this.px(r.x, r.y);
       const py = this.py(r.x, r.y);
-      ctx.fillStyle = `rgba(${r.color},${0.3 * (1 - k)})`;
+      ctx.fillStyle = `rgba(${r.color},${0.14 * (1 - k)})`;
       ctx.beginPath();
       ctx.arc(px, py, r.r * ts * (0.35 + 0.65 * k), 0, Math.PI * 2);
       ctx.fill();
@@ -2578,6 +2677,24 @@ class Renderer {
       p.v += p.dv * dt;
       if (p.soft) { p.du *= 1 - dt * 3; p.dv *= 1 - dt * 1.5; }
       const k = p.life / p.max;
+      if (p.tongue) {
+        /* 영웅의 불꽃: 번지는 동그라미가 아니라, 위로 뾰족한 불꽃 한 송이가 작아지며 사라진다 */
+        const r = p.size * ts * (0.5 + 0.7 * k);
+        const x = p.u * ts;
+        const y = p.v * ts + this.pad;
+        ctx.globalAlpha = Math.min(1, k * 2.4);
+        for (const [q, color] of [[1, '#e8552a'], [0.58, '#ffd45a']]) {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(x - r * q, y);
+          ctx.quadraticCurveTo(x - r * q, y - r * 1.3 * q, x, y - r * 2.4 * q);
+          ctx.quadraticCurveTo(x + r * q, y - r * 1.3 * q, x + r * q, y);
+          ctx.arc(x, y, r * q, 0, Math.PI);
+          ctx.closePath();
+          ctx.fill();
+        }
+        continue;
+      }
       if (p.fire) {
         ctx.globalAlpha = Math.min(1, k * 1.8) * 0.85;
         ctx.fillStyle = k > 0.66 ? '#fff1a8' : k > 0.36 ? '#ffb347' : '#e8552a';

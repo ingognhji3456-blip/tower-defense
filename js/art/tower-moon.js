@@ -363,7 +363,7 @@
     if (Math.abs(span) < 0.06) return;
     const n = Math.max(5, Math.ceil(Math.abs(span) / 0.16));
     const prof = (f) => Math.sin(Math.PI * Math.pow(f, 1.45));
-    const layer = (out, th, color, ragged) => {
+    const layer = (out, th, color, ragged, ink) => {
       ctx.beginPath();
       for (let i = 0; i <= n; i++) {
         const a = a0 + (span * i) / n;
@@ -380,19 +380,27 @@
         ctx.lineTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q * flat);
       }
       ctx.closePath();
+      if (ink) {
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = ART.LW * 1.3;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      }
       ctx.fillStyle = color;
       ctx.fill();
     };
-    layer(0.02, thick * 1.5, 'rgba(42,15,74,' + 0.6 * alpha + ')', true); /* 뒤에 끌리는 짙은 보라 */
-    layer(0.012, thick, 'rgba(142,45,226,' + 0.92 * alpha + ')', true);
-    layer(0, thick * 0.6, 'rgba(224,64,251,' + 0.96 * alpha + ')', false);
-    layer(-0.006, thick * 0.28, 'rgba(248,183,255,' + alpha + ')', false);
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    layer(0.02, thick * 1.5, '#2a0f4a', true, true); /* 굵은 윤곽을 두른 바깥 층 */
+    layer(0.012, thick, '#8e2de2', true);
+    layer(0, thick * 0.6, '#e040fb', false);
+    layer(-0.006, thick * 0.28, '#f8b7ff', false);
     const pts = [];
     for (let i = Math.floor(n * 0.4); i <= n; i++) {
       const a = a0 + (span * i) / n;
       pts.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r * flat);
     }
-    if (pts.length >= 4) artLine(ctx, 'rgba(255,255,255,' + alpha + ')', pts, 0.016);
+    if (pts.length >= 4) artLine(ctx, '#ffffff', pts, 0.016);
+    ctx.globalAlpha = 1;
   }
 
   /* 지금 긋는 공격의 빛. 원월은 몸 뒤를 지나는 쪽('back')과 앞을 지나는 쪽('front')을 나눠 그린다 */

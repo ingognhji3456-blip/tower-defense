@@ -284,7 +284,7 @@
     if (Math.abs(span) < 0.06) return;
     const n = Math.max(5, Math.ceil(Math.abs(span) / 0.16));
     const prof = (f) => Math.sin(Math.PI * Math.pow(f, 1.45));
-    const layer = (out, th, color) => {
+    const layer = (out, th, color, ink) => {
       ctx.beginPath();
       for (let i = 0; i <= n; i++) {
         const a = a0 + (span * i) / n;
@@ -298,13 +298,21 @@
         ctx.lineTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q);
       }
       ctx.closePath();
+      if (ink) {
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = ART.LW * 1.3;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      }
       ctx.fillStyle = color;
       ctx.fill();
     };
-    layer(0.012, thick * 1.5, 'rgba(90,10,36,' + 0.7 * alpha + ')');
-    layer(0.006, thick, 'rgba(216,27,79,' + 0.95 * alpha + ')');
-    layer(0, thick * 0.55, 'rgba(255,79,154,' + alpha + ')');
-    layer(-0.004, thick * 0.24, 'rgba(255,255,255,' + alpha + ')');
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    layer(0.012, thick * 1.5, '#4a081e', true);
+    layer(0.006, thick, '#d81b4f');
+    layer(0, thick * 0.55, '#ff4f9a');
+    layer(-0.004, thick * 0.24, '#ffffff');
+    ctx.globalAlpha = 1;
   }
 
   function trail(ctx, level, p) {

@@ -294,7 +294,7 @@
     if (Math.abs(span) < 0.06) return;
     const n = Math.max(5, Math.ceil(Math.abs(span) / 0.16));
     const prof = (f) => Math.sin(Math.PI * Math.pow(f, 1.45)); /* 머리 가까이가 가장 두껍다 */
-    const layer = (out, th, color, ragged) => {
+    const layer = (out, th, color, ragged, ink) => {
       ctx.beginPath();
       for (let i = 0; i <= n; i++) {
         const a = a0 + (span * i) / n;
@@ -311,20 +311,28 @@
         ctx.lineTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q * flat);
       }
       ctx.closePath();
+      if (ink) {
+        ctx.strokeStyle = ART.OUT;
+        ctx.lineWidth = ART.LW * 1.3;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      }
       ctx.fillStyle = color;
       ctx.fill();
     };
-    layer(0.02, thick * 1.5, 'rgba(122,26,14,' + 0.5 * alpha + ')', true); /* 뒤에 끌리는 검붉은 불길 */
-    layer(0.012, thick, 'rgba(232,85,42,' + 0.9 * alpha + ')', true);
-    layer(0, thick * 0.62, 'rgba(255,170,60,' + 0.95 * alpha + ')', false);
-    layer(-0.006, thick * 0.3, 'rgba(255,241,168,' + alpha + ')', false);
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    layer(0.02, thick * 1.5, '#7a1a0e', true, true); /* 굵은 윤곽을 두른 바깥 층 */
+    layer(0.012, thick, '#e8552a', true);
+    layer(0, thick * 0.62, '#ffaa3c', false);
+    layer(-0.006, thick * 0.3, '#fff1a8', false);
     /* 가장 뜨거운 바깥 날 */
     const pts = [];
     for (let i = Math.floor(n * 0.4); i <= n; i++) {
       const a = a0 + (span * i) / n;
       pts.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r * flat);
     }
-    if (pts.length >= 4) artLine(ctx, 'rgba(255,255,255,' + alpha + ')', pts, 0.016);
+    if (pts.length >= 4) artLine(ctx, '#ffffff', pts, 0.016);
+    ctx.globalAlpha = 1;
   }
 
   /* 지금 긋는 베기의 불꽃. 회전 베기는 몸 뒤를 지나는 쪽('back')과 앞을 지나는 쪽('front')을 나눠 그린다 */
