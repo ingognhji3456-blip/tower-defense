@@ -208,6 +208,7 @@
         ['귀참', (l) => f1(l.dmg)],
         ['혼불', (l) => l.souls + '×' + f1(l.soul)],
         ['귀염포', (l) => (l.breath ? f1(l.breath) : '—')],
+        ['변신', (l) => (l.rage ? l.rage + '초 · 피해 ×' + ONI_RAGE_DMG : '—')],
         ['귀수', (l) => (l.beast ? f1(l.beast) : '—')],
         ['연사', (l) => f1(1 / l.cd)],
         ['거리', (l) => f1(l.range)],

@@ -524,6 +524,22 @@ class Renderer {
           this.columns.push({ kind: 'thunder', x: d.x, y: d.y, r: d.r, life: 0.24, max: 0.24, seed: Math.random() });
           this.rings.push({ x: d.x, y: d.y, r: d.r * 1.2, life: 0.3, max: 0.3, color: '203,166,255' });
           this.spark(d.x, d.y, 8, { color: ['#ffffff', '#cba6ff', '#9cddf8'], speed: 2.6, life: 0.3, size: 0.05 });
+        } else if (d.kind === 'rage') {
+          /* 야차의 변신: 둘레에서 분홍 불기둥이 솟구치고 포효가 퍼진다 */
+          for (let i = 0; i < 6; i++) {
+            const a = (i * Math.PI) / 3 + 0.3;
+            this.columns.push({ pal: 'oni', x: d.x + Math.cos(a) * 1.05, y: d.y + 0.2 + Math.sin(a) * 0.8, r: 0.5, life: 0.75 + (i % 3) * 0.1, max: 0.75 + (i % 3) * 0.1 });
+          }
+          this.columns.push({ pal: 'oni', x: d.x, y: d.y + 0.25, r: 0.9, life: 0.9, max: 0.9 });
+          this.rings.push({ x: d.x, y: d.y + 0.2, r: d.r * 1.2, life: 0.6, max: 0.6, color: SKIN.oni.rgb });
+          this.rings.push({ x: d.x, y: d.y + 0.2, r: d.r * 0.7, life: 0.9, max: 0.9, color: '255,255,255' });
+          this.spark(d.x, d.y, 34, { color: SKIN.oni.hit, speed: 4, life: 0.8, size: 0.09, lift: -1.8, spread: 0.8 });
+          if (!this.clean) this.floaters.push({ x: d.x, y: d.y - 3.3, text: '변신!', color: '#ff8fc0', life: 1.8, max: 1.8, big: true });
+          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.34);
+        } else if (d.kind === 'calm') {
+          /* 변신이 풀린다: 귀기가 연기처럼 흩어진다 */
+          this.rings.push({ x: d.x, y: d.y + 0.2, r: 1.4, life: 0.5, max: 0.5, color: SKIN.oni.rgb });
+          this.spark(d.x, d.y - 0.4, 12, { color: ['#3a1220', '#5a1a30', '#ff8fc0'], speed: 1.2, life: 0.9, size: 0.16, lift: -0.8, soft: true, spread: 0.6 });
         } else if (d.kind === 'soul') {
           /* 혼불이 적에게 닿아 터진다 */
           this.rings.push({ x: d.x, y: d.y, r: 0.55, life: 0.24, max: 0.24, color: SKIN.oni.rgb });
@@ -627,17 +643,6 @@ class Renderer {
         }
         this.rings.push({ x: d.tower.cx, y: d.tower.cy + 0.2, r: 0.9, life: 0.45, max: 0.45, color: '255,226,126' });
         this.spark(d.tower.cx, d.tower.cy - 0.3, 14, { color: ['#ffe27e', '#ffffff'], speed: 1.3, life: 0.7, size: 0.05, lift: -1.4, spread: 0.5 });
-        if (d.tower.type === 'oni' && d.tower.level === 2) {
-          /* 야차의 변신: 둘레에서 분홍 불기둥이 솟구친다 */
-          const tw = d.tower;
-          for (let i = 0; i < 6; i++) {
-            const a = (i * Math.PI) / 3 + 0.3;
-            this.columns.push({ pal: 'oni', x: tw.cx + Math.cos(a) * 1.05, y: tw.cy + 0.2 + Math.sin(a) * 0.8, r: 0.5, life: 0.75 + (i % 3) * 0.1, max: 0.75 + (i % 3) * 0.1 });
-          }
-          this.columns.push({ pal: 'oni', x: tw.cx, y: tw.cy + 0.25, r: 0.9, life: 0.9, max: 0.9 });
-          this.spark(tw.cx, tw.cy, 30, { color: SKIN.oni.hit, speed: 3.6, life: 0.8, size: 0.09, lift: -1.8, spread: 0.8 });
-          if (!this.reduced && !this.clean) this.shake = Math.max(this.shake, 0.3);
-        }
         if (d.learn) {
           /* 새 공격을 익힌 순간: 빛기둥이 솟고, 무엇을 익혔는지 머리 위에 크게 뜬다 */
           const tw = d.tower;
@@ -960,6 +965,12 @@ class Renderer {
     o.chargeE = tw.lv.eclipse ? 1 - Math.max(0, Math.min(1, tw.eclipseT / MOON_ECLIPSE_EVERY)) : 0;
     o.chargeB = tw.lv.breath ? 1 - Math.max(0, Math.min(1, tw.breathT / ONI_BREATH_EVERY)) : 0;
     o.wind = ONI_BREATH_WIND / (tw.castDur || 1);
+    if (tw.lv.rage) {
+      /* 야차의 변신: 모습은 잠깐에 걸쳐 바뀌고, 발밑 고리는 남은 시간(또는 다음 변신까지 찬 정도)을 알린다 */
+      st.form = (st.form || 0) + ((tw.rage > 0 ? 1 : 0) - (st.form || 0)) * (dt > 0 ? 1 - Math.exp(-dt * 9) : 0);
+      o.form = st.form;
+      o.gauge = tw.rage > 0 ? tw.rage / tw.lv.rage : 1 - Math.max(0, Math.min(1, tw.rageT / ONI_RAGE_COOL));
+    }
     st.o = o;
     st.have = have;
     return have;
@@ -2018,7 +2029,7 @@ class Renderer {
       const d = Math.hypot(bx, by) || 1;
       const ux = bx / d;
       const uy = by / d;
-      const r = ts * 0.17;
+      const r = ts * (s.big ? 0.22 : 0.17);
       const wag = Math.sin(t * 18 + s.seed * 20) * r * 0.5;
       /* 땅에 지는 그림자 */
       ctx.fillStyle = 'rgba(22,40,24,.22)';
@@ -2071,7 +2082,7 @@ class Renderer {
       const m = art && art.mouth && st && st.o ? art.mouth(tw.level, st.have, st.o) : [0, -0.5];
       const k = Math.min(1, b.t / b.dur);
       const env = Math.min(1, k * 9 + 0.2, (1 - k) * 6 + 0.1) * (0.92 + 0.08 * Math.sin(t * 50));
-      const grow = 1 + (tw.level - 1) * 0.25;
+      const grow = 1 + (tw.level - 1) * 0.25 + (b.big ? 0.4 : 0);
       const sx = this.px(tw.cx, tw.cy) + m[0] * ts;
       const sy = this.py(tw.cx, tw.cy) + m[1] * ts;
       const ex = this.px(tw.cx + Math.cos(b.a) * b.len, tw.cy + Math.sin(b.a) * b.len);

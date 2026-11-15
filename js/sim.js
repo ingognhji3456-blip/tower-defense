@@ -281,6 +281,9 @@ class Game {
       soulPending: false, // 야차: 혼불을 풀 차례
       breathAim: null, // 야차: 귀염포를 내뿜을 쪽
       beastPending: false, // 야차: 귀수를 부를 차례
+      rage: 0, // 야차: 변신이 남은 시간(초). 0 이면 본모습
+      rageT: 2.5, // 야차: 다음 변신까지
+      ragePending: false, // 야차: 변신할 차례
       breathT: 3, // 야차: 다음 귀염포까지
       breath: null, // 야차: 지금 내뿜는 귀염포 { a, t, dur, tick, len }
       beastT: 6, // 야차: 다음 귀수까지
@@ -354,7 +357,7 @@ class Game {
         else t.eclipseT = Math.min(t.eclipseT, 0.5);
       } else if (t.def.mech === 'oni') {
         if (t.level === 1) t.breathT = Math.min(t.breathT, 0.5);
-        else t.beastT = Math.min(t.beastT, 0.9);
+        else t.rageT = Math.min(t.rageT, 0.6);
       }
     }
     this.emit('upgrade', { tower: t, learn });
@@ -495,6 +498,14 @@ class Game {
         t.wavePending = false;
         t.idle = true;
         t.beam = null;
+        if (t.rage > 0) {
+          /* 웨이브가 끝나면 변신도 풀린다. 다음 웨이브에서는 곧 다시 변신할 수 있다 */
+          t.rage = 0;
+          t.rageT = 3;
+          this.recalc();
+        }
+        t.breath = null;
+        t.slash = null;
       }
     }
     this.updateShots(dt);
@@ -1493,31 +1504,56 @@ class Game {
      3단에서는 큰 귀신으로 변신해, 길을 따라 달려가 들이받고 터지는 귀수를 부른다. */
   runOni(t, dt) {
     const lv = t.lv;
+    /* 변신: 스무 초 동안 큰 괴물이 되어 모든 공격이 세지고 빨라지며 멀리 닿는다 */
+    if (t.rage > 0) {
+      t.rage -= dt;
+      if (t.rage <= 0) {
+        t.rage = 0;
+        t.rageT = ONI_RAGE_COOL;
+        this.emit('burst', { kind: 'calm', x: t.cx, y: t.cy, r: 1 });
+      }
+    } else if (t.rageT > 0) t.rageT -= dt;
+    const raging = t.rage > 0;
+    const power = raging ? ONI_RAGE_DMG : 1;
+    const quick = raging ? ONI_RAGE_HASTE : 1;
+    t.range = lv.range * t.reach * (raging ? ONI_RAGE_REACH : 1);
     if (t.cast > 0) t.cast = Math.max(0, t.cast - dt);
-    if (t.cd > 0) t.cd -= dt;
-    if (t.breathT > 0) t.breathT -= dt;
-    if (t.beastT > 0) t.beastT -= dt;
+    if (t.cd > 0) t.cd -= dt * quick;
+    if (t.breathT > 0) t.breathT -= dt * quick;
+    if (raging && t.beastT > 0) t.beastT -= dt;
     if (t.slash) {
       t.slash.t += dt;
       if (t.slash.t >= t.slash.dur) t.slash = null;
     }
-    /* 혼불: 두 손을 내뻗는 순간 풀려난다 */
+    /* 변신하는 순간: 포효로 둘레의 적을 밀쳐 세운다 */
+    if (t.ragePending && t.cast <= t.castDur * 0.55) {
+      t.ragePending = false;
+      t.rage = lv.rage;
+      t.beastT = 1;
+      t.range = lv.range * t.reach * ONI_RAGE_REACH;
+      for (const e of this.enemies) {
+        if (e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= (ONI_RAGE_ROAR + e.r * 0.5) ** 2) this.strike(e, t, { dmg: lv.dmg * 1.5, dtype: 'magic', stun: 0.7 }, 1);
+      }
+      this.emit('burst', { kind: 'rage', x: t.cx, y: t.cy, r: ONI_RAGE_ROAR, tower: t });
+    }
+    /* 혼불: 두 손을 내뻗는 순간 풀려난다. 변신한 동안에는 둘 더 푼다 */
     if (t.soulPending && (!t.slash || t.slash.t >= t.slash.dur * 0.45)) {
       t.soulPending = false;
+      const count = lv.souls + (raging ? 2 : 0);
       const r2 = (t.range + 0.5) ** 2;
       const pool = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2).sort((a, b) => b.hp - a.hp);
-      for (let i = 0; i < lv.souls && pool.length; i++) {
-        const spread = (i - (lv.souls - 1) / 2) * 0.55;
+      for (let i = 0; i < count && pool.length; i++) {
+        const spread = (i - (count - 1) / 2) * 0.5;
         this.souls.push({
           x: t.cx, y: t.cy, a: t.mid + spread, target: pool[i % pool.length], t: 0, life: 3,
-          src: t, fx: { dmg: lv.soul, dtype: 'magic' }, seed: this.rand(),
+          src: t, fx: { dmg: lv.soul * power, dtype: 'magic' }, big: raging, seed: this.rand(),
         });
       }
       this.emit('shoot', { kind: 'souls', tower: t });
     }
     /* 귀염포: 기를 모았다가 내뿜는다. 내뿜는 동안 줄기 안의 적을 계속 태운다 */
     if (t.breathAim != null && t.cast <= t.castDur - ONI_BREATH_WIND) {
-      t.breath = { a: t.breathAim, t: 0, dur: ONI_BREATH_TIME, tick: 0, len: t.range * ONI_BREATH_REACH };
+      t.breath = { a: t.breathAim, t: 0, dur: ONI_BREATH_TIME, tick: 0, len: t.range * ONI_BREATH_REACH, power, big: raging };
       t.breathAim = null;
       this.emit('shoot', { kind: 'breath', tower: t });
     }
@@ -1531,14 +1567,15 @@ class Game {
         b.tick += 0.1;
         const cx = Math.cos(b.a);
         const sy = Math.sin(b.a);
-        const fx = { dmg: (lv.breath * 0.1) / b.dur, dtype: 'magic' };
+        const half = ONI_BREATH_HALF * (b.big ? 1.3 : 1);
+        const fx = { dmg: (lv.breath * b.power * 0.1) / b.dur, dtype: 'magic' };
         for (const e of this.enemies) {
           if (!e.alive) continue;
           const rx = e.x - t.cx;
           const ry = e.y - t.cy;
           const along = rx * cx + ry * sy;
           if (along < 0.2 || along > b.len + e.r * 0.5) continue;
-          if (Math.abs(ry * cx - rx * sy) > ONI_BREATH_HALF + e.r * 0.5) continue;
+          if (Math.abs(ry * cx - rx * sy) > half + e.r * 0.5) continue;
           this.strike(e, t, fx, 1);
           this.emit('hit', { kind: 'sear', skin: 'oni', x: e.x, y: e.y });
         }
@@ -1561,9 +1598,16 @@ class Game {
     if (t.cast > 0 || t.slash) return; /* 하던 몸짓과 공격이 끝날 때까지는 새로 시작하지 않는다 */
     const r2 = t.range * t.range;
     const near = this.enemies.filter((e) => e.alive && (e.x - t.cx) ** 2 + (e.y - t.cy) ** 2 <= r2);
-    if (lv.beast && t.beastT <= 0 && near.length) {
+    if (lv.rage && !raging && t.rageT <= 0 && near.length) {
+      /* 적이 사거리에 들어와 있고 때가 되었으면 변신한다 */
+      this.lordGesture(t, 'rage', 0.9);
+      t.ragePending = true;
+      this.emit('cast', { kind: 'rage', tower: t });
+      return;
+    }
+    if (raging && lv.beast && t.beastT <= 0 && near.length) {
       t.beastT = ONI_BEAST_EVERY;
-      this.lordGesture(t, 'beast', 0.9);
+      this.lordGesture(t, 'beast', 0.6);
       t.beastPending = true;
       this.emit('cast', { kind: 'beast', tower: t });
       return;
@@ -1587,15 +1631,15 @@ class Game {
     t.cd = (lv.cd * (volley ? ONI_REST : 1)) / t.haste;
     t.recoil = 1;
     t.flash = 1;
-    t.slash = { t: 0, dur: volley ? ONI_VOLLEY : ONI_SWING, step, a: t.mid };
+    t.slash = { t: 0, dur: (volley ? ONI_VOLLEY : ONI_SWING) / (raging ? 1.2 : 1), step, a: t.mid };
     if (volley) {
       t.soulPending = true;
     } else {
-      /* 귀참: 손톱이 앞을 지나는 순간 떠나, 땅을 가르며 곧게 달려간다 */
+      /* 귀참: 손톱이 앞을 지나는 순간 떠나, 땅을 가르며 곧게 달려간다. 변신한 동안에는 더 크고 넓다 */
       this.waves.push({
         skin: 'oni', x: t.cx, y: t.cy, a: t.mid, d: 0.25, max: t.range + 0.35, wait: ONI_WAVE_AT, hit: [],
-        speed: ONI_WAVE_SPEED, half: ONI_WAVE_HALF,
-        src: t, fx: { dmg: lv.dmg, dtype: 'magic' }, flip: step === 1, level: t.level, seed: this.rand(),
+        speed: ONI_WAVE_SPEED, half: ONI_WAVE_HALF * (raging ? 1.4 : 1),
+        src: t, fx: { dmg: lv.dmg * power, dtype: 'magic' }, flip: step === 1, level: t.level + (raging ? 2 : 0), seed: this.rand(),
       });
     }
     this.emit('shoot', { kind: 'oni', step, tower: t });

@@ -359,12 +359,12 @@ const Sfx = {
       case 'cast':
         if (d.kind === 'pillar') this.play('slam');
         else if (d.kind === 'meteor' || d.kind === 'swords' || d.kind === 'eclipse' || d.kind === 'breath') this.play('sky');
-        else if (d.kind === 'beast') this.play('roar');
+        else if (d.kind === 'beast' || d.kind === 'rage') this.play('roar');
         break;
       case 'burst':
-        if (d.kind === 'vortex' || d.kind === 'beast') break; /* 던지거나 부를 때 낸 소리로 충분하다 */
+        if (d.kind === 'vortex' || d.kind === 'beast' || d.kind === 'calm') break; /* 던지거나 부를 때 낸 소리로 충분하다 */
         if (d.kind === 'soul') { this.play('sear'); break; }
-        this.play({ shock: 'shock', pillar: 'pillar', thunder: 'thunder', cross: 'cross', sword: 'sword', bite: 'bite', snare: 'snare', eclipse: 'eclipse', beastboom: 'bite' }[d.kind] || 'meteor');
+        this.play({ shock: 'shock', pillar: 'pillar', thunder: 'thunder', cross: 'cross', sword: 'sword', bite: 'bite', snare: 'snare', eclipse: 'eclipse', beastboom: 'bite', rage: 'shock' }[d.kind] || 'meteor');
         break;
       case 'sear': this.play('sear'); break;
       case 'explode':
